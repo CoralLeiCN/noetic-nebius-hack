@@ -24,6 +24,8 @@
   function screen(name) {
     $("debate-screen").hidden = name !== "debate";
     $("library-screen").hidden = name !== "library";
+    $("arena-screen").hidden = name !== "arena";
+    document.dispatchEvent(new CustomEvent("workspace-screen", { detail: name }));
     for (const button of document.querySelectorAll("[data-screen]")) button.setAttribute("aria-pressed", String(button.dataset.screen === name));
   }
   function remember() {
