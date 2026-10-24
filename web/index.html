@@ -6,7 +6,7 @@
   <title>Debate · Practice with a speaker</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
-  <script src="/debate.js" defer></script>
+  <script src="/debate.js" type="module"></script>
   <script src="/arena.js" defer></script>
 </head>
 <body>
@@ -39,6 +39,11 @@
           <div class="panel-heading"><span class="step">02</span><h2 id="room-heading">The floor is yours</h2><span id="debate-badge" class="count">SETUP</span></div>
           <p id="debate-error" class="error" role="alert" hidden></p>
           <p id="debate-status" role="status" aria-live="polite"></p>
+          <div id="debate-generation-progress" class="debate-generation-progress" hidden>
+            <span class="generation-spinner" role="progressbar" aria-label="Generation in progress"></span>
+            <div class="generation-copy"><strong id="debate-generation-phase"></strong><p id="debate-generation-hint"></p></div>
+            <span id="debate-generation-elapsed" class="generation-elapsed" role="timer" aria-live="off"></span>
+          </div>
           <div id="debate-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>A sharper argument starts with a challenge.</h3><p>Enter a topic and choose a speaker persona. You’ll review two opposing positions and choose your side before the opening argument.</p><span>ONE TOPIC → TWO SIDES → YOUR NEXT ARGUMENT</span></div>
           <div id="debate-detail" hidden>
             <p class="eyebrow" id="debate-opponent"></p><h2 id="debate-motion"></h2>
@@ -47,8 +52,34 @@
             <div id="side-picker"><p class="hint">Choose the position you want to defend. Your opponent takes the other side.</p><div class="position-grid"><button type="button" data-side="affirmative" class="position-card"><span>AFFIRMATIVE · YOUR SIDE</span><strong id="affirmative-position"></strong><em>Take this side →</em></button><button type="button" data-side="negative" class="position-card"><span>NEGATIVE · YOUR SIDE</span><strong id="negative-position"></strong><em>Take this side →</em></button></div><button type="button" id="regenerate-debate" class="text-button">↻ Regenerate positions</button></div>
             <div id="debate-assignments" class="assignments" hidden></div>
             <div id="debate-messages" role="log" aria-label="Debate transcript" aria-live="polite" aria-relevant="additions"></div>
-            <form id="argument-form" hidden><label for="debate-argument">Your argument</label><textarea id="debate-argument" rows="4" maxlength="12000" placeholder="Challenge a claim, offer a counterargument, or ask a question…" required></textarea><button type="submit" id="send-argument" class="primary">Send argument <span aria-hidden="true">→</span></button></form>
+            <div id="debate-voice-controls" class="debate-voice-controls" hidden>
+              <label class="voice-toggle" for="read-debate-replies"><input id="read-debate-replies" type="checkbox" checked> Read replies aloud</label>
+              <button id="play-debate-audio" class="secondary" type="button" hidden>Play audio</button>
+              <button id="stop-debate-audio" class="secondary" type="button" hidden>Stop audio</button>
+            </div>
+            <form id="argument-form" hidden>
+              <label for="debate-argument">Your argument</label>
+              <textarea id="debate-argument" rows="4" maxlength="12000" placeholder="Speak or type your argument, then send it when you’re ready…" aria-describedby="debate-recording-hint debate-input-status" required></textarea>
+              <div class="microphone-input">
+                <label for="debate-microphone">Microphone</label>
+                <select id="debate-microphone"><option value="">System default microphone</option></select>
+                <div id="debate-input-monitor" class="input-monitor" hidden>
+                  <meter id="debate-input-level" min="0" max="100" value="0" aria-label="Microphone input level"></meter>
+                  <span id="debate-input-detail"></span>
+                </div>
+              </div>
+              <div class="argument-actions">
+                <button id="record-debate-argument" class="secondary" type="button" aria-pressed="false">Speak argument</button>
+                <button id="cancel-debate-recording" class="text-button" type="button" hidden>Cancel recording</button>
+                <button id="retry-debate-input" class="secondary" type="button" hidden>Retry assistant response</button>
+                <button type="submit" id="send-argument" class="primary">Send argument <span aria-hidden="true">→</span></button>
+              </div>
+              <p id="debate-recording-hint" class="hint">Record up to 115 seconds. Stop to transcribe, review the text, then send your argument.</p>
+              <p id="debate-input-status" class="hint" role="status" aria-live="polite" hidden></p>
+            </form>
           </div>
+          <p id="debate-speech-status" role="status" aria-live="polite"></p>
+          <p id="debate-speech-error" class="error" role="alert" hidden></p>
           <div class="debate-actions"><button type="button" id="sync-debate" class="secondary" hidden>Refresh debate</button><button type="button" id="retry-debate" class="secondary" hidden>Retry generation</button><button type="button" id="end-debate" class="text-button" hidden>End debate</button><button type="button" id="new-debate" class="secondary" hidden>Start a new debate</button></div>
         </section>
       </div>
@@ -141,6 +172,15 @@
                 <label class="sr-only" for="transcriptText">Transcript text</label>
                 <textarea id="transcriptText" name="transcriptText" rows="7" maxlength="500000" placeholder="Paste the transcript here, including timestamps if available…" data-required="true" required></textarea>
                 <p class="hint">Paste the original captions or transcript · up to 500,000 characters and 1 MiB.</p>
+                <details><summary>Transcribe an audio file locally</summary>
+                  <label class="sr-only" for="speech-file">Audio file to transcribe</label>
+                  <input id="speech-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg,.webm">
+                  <button id="transcribe-audio" class="secondary" type="button">Transcribe audio</button>
+                  <button id="cancel-transcription" class="secondary" type="button" hidden>Cancel transcription</button>
+                  <p class="hint">Up to 120 seconds and 16 MiB. The result fills the transcript above for you to review.</p>
+                  <p id="speech-status" role="status" aria-live="polite"></p>
+                  <p id="speech-error" class="error" role="alert" hidden></p>
+                </details>
               </div>
               <div id="transcript-upload" data-panel="transcript" data-mode="upload" hidden>
                 <label class="sr-only" for="transcript">Transcript file</label>
@@ -180,6 +220,11 @@
             <button type="button" data-view="persona" aria-pressed="false">Speaker persona</button>
           </div>
           <div id="record-content" aria-live="polite"></div>
+          <button id="read-selection" class="secondary" type="button">Read selected text aloud</button>
+          <button id="stop-speech" class="secondary" type="button" hidden>Stop speech</button>
+          <p id="playback-status" role="status" aria-live="polite"></p>
+          <p id="playback-error" class="error" role="alert" hidden></p>
+          <audio id="speech-player" controls hidden></audio>
           <a id="download" class="download" download>Download this section ↓</a>
           <details id="limitations"><summary>Source and accuracy notes</summary><ul id="limitation-list"></ul></details>
         </article>

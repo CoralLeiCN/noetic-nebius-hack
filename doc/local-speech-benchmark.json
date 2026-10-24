@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-24",
+  "device": "Apple M4 Pro",
+  "unified_memory_bytes": 51539607552,
+  "sglang_revision": "6e75cba89c598b41bcadf8d6a761c09e9979ad20",
+  "input": {
+    "source": "SGLang-Omni tests/data/query_to_cars.wav at the pinned source revision",
+    "audio_seconds": 4.62,
+    "reference_text": "How many cars are there in the picture?"
+  },
+  "scope": "Short-clip inference timing, not an accuracy benchmark. No concurrent inference. Each ASR process runs the same clip three times; later runs are warm. OS/Metal caches may already be warm. TTS uses a seeded English passage. Resident memory and footprint are process measurements, not total system memory.",
+  "measurements": [
+    {
+      "model": "mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit",
+      "peak_resident_bytes": 795230208,
+      "runs": [
+        {
+          "finish_reason": "stop",
+          "generated_token_count": 18,
+          "language": null,
+          "seconds": 0.126226166,
+          "text": "How many cars are there in the picture?",
+          "real_time_factor": 0.027321680952380953
+        },
+        {
+          "finish_reason": "stop",
+          "generated_token_count": 18,
+          "language": null,
+          "seconds": 0.104243416,
+          "text": "How many cars are there in the picture?",
+          "real_time_factor": 0.022563509956709957
+        },
+        {
+          "finish_reason": "stop",
+          "generated_token_count": 18,
+          "language": null,
+          "seconds": 0.10460275,
+          "text": "How many cars are there in the picture?",
+          "real_time_factor": 0.022641287878787875
+        }
+      ],
+      "peak_footprint_bytes": 956351640,
+      "model_load_seconds": 0.0523373
+    },
+    {
+      "model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit",
+      "peak_resident_bytes": 2634792960,
+      "runs": [
+        {
+          "audio_seconds": 10.64,
+          "finish_reason": "stop",
+          "first_audio_seconds": 0.878588833,
+          "frame_count": 133,
+          "prompt_token_count": 247,
+          "real_time_factor": 0.4174724545112781,
+          "seconds": 4.441906916
+        }
+      ],
+      "peak_footprint_bytes": 3719629848,
+      "model_load_seconds": 0.3113
+    },
+    {
+      "model": "mlx-community/Qwen3-ASR-1.7B-6bit",
+      "peak_resident_bytes": 2117500928,
+      "peak_footprint_bytes": 3440593656,
+      "runs": [
+        {
+          "finish_reason": "stop",
+          "generated_token_count": 12,
+          "language": "English",
+          "seconds": 1.071009167,
+          "text": "How many cars are there in the picture?",
+          "real_time_factor": 0.231820166017316
+        },
+        {
+          "finish_reason": "stop",
+          "generated_token_count": 12,
+          "language": "English",
+          "seconds": 0.17237775,
+          "text": "How many cars are there in the picture?",
+          "real_time_factor": 0.037311201298701295
+        },
+        {
+          "finish_reason": "stop",
+          "generated_token_count": 12,
+          "language": "English",
+          "seconds": 0.171344333,
+          "text": "How many cars are there in the picture?",
+          "real_time_factor": 0.03708751796536796
+        }
+      ],
+      "model_load_seconds": 0.197868
+    }
+  ],
+  "tts_repeat": {
+    "model": "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit",
+    "peak_resident_bytes": 2634629120,
+    "peak_footprint_bytes": 3719351272,
+    "runs": [
+      {
+        "audio_seconds": 10.64,
+        "finish_reason": "stop",
+        "first_audio_seconds": 0.883720833,
+        "frame_count": 133,
+        "prompt_token_count": 247,
+        "real_time_factor": 0.4205341203947368,
+        "seconds": 4.474483041
+      }
+    ],
+    "model_load_seconds": 0.615531
+  },
+  "app_api_check": {
+    "transcription_request_seconds": 0.675857167,
+    "speech_request_seconds": 1.818142875,
+    "speech_text": "A strong argument needs clear evidence.",
+    "returned_audio_seconds": 3.52,
+    "roundtrip_transcript": "A strong argument needs clear evidence.",
+    "playback": "Complete WAV, not streaming playback."
+  }
+}

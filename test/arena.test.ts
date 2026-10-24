@@ -31,7 +31,7 @@ async function sources() {
 
 test("Arena API compares providers through the Practice SDK path and retries only failed work", { timeout: 90_000 }, async () => {
   const { root, videos, record, persona } = await sources();
-  let failReply = true;
+  let failedReplyAttempts = 3;
   let failJudge = true;
   const first = await providerFixture((request, index) => JSON.stringify(request.body.input).includes("Create one debate motion")
     ? JSON.stringify(POSITIONS) : `Affirmative argument ${index}`, ["model-a"]);
@@ -40,8 +40,8 @@ test("Arena API compares providers through the Practice SDK path and retries onl
       if (failJudge) { failJudge = false; return JSON.stringify({ scores: { affirmative: 120, negative: 70 }, rationale: "Invalid" }); }
       return JSON.stringify({ scores: { affirmative: 78, negative: 74 }, rationale: "Affirmative explained access; negative addressed risks." });
     }
-    if (JSON.stringify(request.body.input).includes("Respond to the human") && failReply) {
-      failReply = false; return { status: 503, body: "private-secret-provider-error" };
+    if (JSON.stringify(request.body.input).includes("Respond to the human") && failedReplyAttempts > 0) {
+      failedReplyAttempts--; return { status: 503, body: "private-secret-provider-error" };
     }
     return "Negative argument";
   }, ["model-b", "judge-model"]);
@@ -77,6 +77,7 @@ test("Arena API compares providers through the Practice SDK path and retries onl
     assert.doesNotMatch(failure.error, /private-secret/);
     assert.equal(failure.session.messages.length, 3);
     assert.equal(failure.session.pending?.kind, "run");
+    assert.equal(failedReplyAttempts, 0, "provider HTTP retries are exhausted before requiring manual recovery");
     assert.equal((await post(route + "/judge")).status, 409);
     const recovered = await (await post(route + "/retry")).json() as ArenaSnapshot;
     assert.equal(recovered.status, "awaiting_judgment");
@@ -90,7 +91,7 @@ test("Arena API compares providers through the Practice SDK path and retries onl
       assert.match(input, /Present two or three distinct opening arguments/);
       assert.match(input, /simulated debate opponent/);
     }
-    const rebuilt = JSON.stringify(second.requests[2]?.body.input);
+    const rebuilt = JSON.stringify(second.requests[4]?.body.input);
     assert.match(rebuilt, /assistantSide.*negative/);
     assert.match(rebuilt, /messages/);
     const judgeFailure = await post(route + "/judge"); assert.equal(judgeFailure.status, 502);
