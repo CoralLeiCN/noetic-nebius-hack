@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { LocalSpeech, SpeechServiceClient, loadSpeechConfig, normalizeAudio } from "../src/speech.js";
+import { Speech, SpeechServiceClient, loadSpeechConfig, normalizeAudio } from "../src/speech.js";
 import { createSpeechServer, speechAllowedOrigins } from "../src/speech-server.js";
 import { createVideoServer } from "../src/server.js";
 import { VideoService } from "../src/video-service.js";
+import { RecordError } from "../src/video-record.js";
 
 function wav(seconds = 0.1): Buffer {
   const result = Buffer.alloc(44 + Math.ceil(seconds * 16000) * 2);
@@ -23,7 +24,7 @@ async function fixture(handler: (request: IncomingMessage, response: ServerRespo
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No fixture port.");
   const url = `http://127.0.0.1:${address.port}`;
-  return { url, speech: new LocalSpeech({ ...loadSpeechConfig({}), asrUrl: url, ttsUrl: url }), close: async () => {
+  return { url, speech: new Speech({ ...loadSpeechConfig({}), asrUrl: url, ttsUrl: url }), close: async () => {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
   } };
@@ -138,11 +139,55 @@ test("speech adapter forwards regional language hints and omits language for aut
   });
   try {
     for (const asrLanguage of ["en-GB", "auto"]) {
-      const speech = new LocalSpeech({ ...loadSpeechConfig({}), asrUrl: upstream.url, asrLanguage });
+      const speech = new Speech({ ...loadSpeechConfig({}), asrUrl: upstream.url, asrLanguage });
       assert.equal((await speech.transcribe(wav())).text, "An English argument.");
     }
     assert.deepEqual(languages, ["en-GB", null]);
   } finally { await upstream.close(); }
+});
+
+test("unavailable local transcription identifies its setup independently of the voice provider", async () => {
+  for (const env of [{}, { TTS_PROVIDER: "elevenlabs", ELEVENLABS_API_KEY: "test-private-key" }]) {
+    const speech = new Speech(loadSpeechConfig(env), async () => {
+      throw new TypeError("private network detail test-private-key", { cause: { code: "ECONNREFUSED" } });
+    });
+    await assert.rejects(speech.transcribe(wav()), error => {
+      assert.ok(error instanceof RecordError);
+      assert.equal(error.status, 503);
+      assert.match(error.message, /Local transcription is unavailable/);
+      assert.match(error.message, /speech:setup/);
+      assert.match(error.message, /speech:start/);
+      assert.doesNotMatch(error.message, /private|test-private-key/);
+      return true;
+    });
+  }
+});
+
+test("unavailable local synthesis identifies the local speech worker", async () => {
+  const speech = new Speech(loadSpeechConfig({}), async () => {
+    throw new TypeError("private local worker details", { cause: { code: "ECONNREFUSED" } });
+  });
+  await assert.rejects(speech.speak("An argument."), error => {
+    assert.ok(error instanceof RecordError);
+    assert.equal(error.status, 503);
+    assert.match(error.message, /Local speech is unavailable/);
+    assert.match(error.message, /speech:start/);
+    assert.doesNotMatch(error.message, /private/);
+    return true;
+  });
+});
+
+test("malformed transcription JSON reports invalid provider output rather than unavailable speech", async () => {
+  const speech = new Speech(loadSpeechConfig({}), async () => new Response("private invalid JSON", {
+    headers: { "content-type": "application/json" },
+  }));
+  await assert.rejects(speech.transcribe(wav()), error => {
+    assert.ok(error instanceof RecordError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /invalid transcript/);
+    assert.doesNotMatch(error.message, /private|unavailable/);
+    return true;
+  });
 });
 
 test("speech cancels ongoing work, rejects concurrent requests, and releases capacity", async () => {

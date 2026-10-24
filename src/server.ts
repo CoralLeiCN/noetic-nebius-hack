@@ -170,6 +170,10 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
           }
         }
       }
+      if (request.method === "GET" && url.pathname === "/api/speech/voices") {
+        if (!speech.voices) throw new RecordError(503, "Voice selection is unavailable from this speech service.");
+        return json(response, 200, await speech.voices());
+      }
       if (request.method === "POST" && ["/api/speech/transcriptions", "/api/speech/audio"].includes(url.pathname)) {
         return await handleSpeechRequest(request, response, url.pathname.endsWith("/transcriptions"), speech);
       }

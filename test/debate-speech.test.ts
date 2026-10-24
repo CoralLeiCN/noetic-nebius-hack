@@ -15,7 +15,7 @@ interface VoiceController {
   stopPlayback(): void;
   resumePlayback(): Promise<boolean>;
   cancel(): void;
-  play(text: string): Promise<boolean>;
+  play(text: string, voiceId?: string): Promise<boolean>;
   readonly state: VoiceState;
 }
 
@@ -474,4 +474,17 @@ test("muted and disconnected microphone tracks produce actionable warnings and r
   assert.equal(controller.state.recording, false);
   assert.equal(h.timers.size, 0);
   assert.ok([...h.trackEvents.values()].every(listeners => listeners.size === 0));
+});
+
+
+test("every passage uses the selected voice and omitted selection keeps the service default", async () => {
+  const h = harness();
+  const controller = voice.createDebateSpeech({ environment: h.environment });
+  const passage = "Consider the evidence before reaching a conclusion. ".repeat(18);
+  assert.equal(await controller.play(passage, "6osMNatXqZrKCuGTB2bV"), true);
+  assert.ok(h.requests.length > 1);
+  for (const request of h.requests) assert.equal(JSON.parse(request.init.body as string).voiceId, "6osMNatXqZrKCuGTB2bV");
+  h.requests.length = 0;
+  assert.equal(await controller.play("A default voice reply."), true);
+  assert.deepEqual(JSON.parse(h.requests[0]!.init.body as string), { input: "A default voice reply." });
 });

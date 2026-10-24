@@ -31,6 +31,11 @@
               <button type="submit" id="prepare-debate" class="primary">Prepare debate <span aria-hidden="true">↗</span></button>
             </fieldset>
           </form>
+          <div class="debate-voice-choice">
+            <div class="speaker-heading"><label for="debate-voice">Playback voice</label><button type="button" id="refresh-voices" class="text-button">Refresh voices</button></div>
+            <select id="debate-voice" class="model-select" aria-describedby="debate-voice-hint" disabled><option value="">Loading voices…</option></select>
+            <p id="debate-voice-hint" class="hint">Choose a voice for this speaker. Your choice is saved in this browser.</p>
+          </div>
           <button type="button" id="review-debate-source" class="secondary" hidden>Review speaker persona ↗</button>
           <button type="button" id="add-speaker" class="text-button add-speaker">+ Build a persona in the source library</button>
           <div class="process-note"><span class="dot"></span><p>A simulated opponent guided by a saved speaker persona. New arguments are generated for practice and may differ from the speaker’s actual views.</p></div>

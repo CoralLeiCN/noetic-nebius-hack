@@ -37,7 +37,29 @@ def digest(path):
     return result.hexdigest()
 
 
+def tts_provider(require_credentials=False):
+    # Let Node parse .env exactly as it does for the speech API. Only the provider
+    # name leaves this subprocess; credentials are never printed or read by Python.
+    script = """
+const provider = process.env.TTS_PROVIDER?.trim() || "local";
+if (!["local", "elevenlabs"].includes(provider)) {
+  console.error("TTS_PROVIDER must be local or elevenlabs."); process.exit(1);
+}
+if (process.argv[1] === "required" && provider === "elevenlabs" && !process.env.ELEVENLABS_API_KEY?.trim()) {
+  console.error("ELEVENLABS_API_KEY is required when TTS_PROVIDER=elevenlabs."); process.exit(1);
+}
+console.log(provider);
+"""
+    result = subprocess.run(["node", "--env-file-if-exists=.env", "-e", script,
+                             "required" if require_credentials else "optional"],
+                            cwd=ROOT, capture_output=True, text=True)
+    if result.returncode:
+        raise SystemExit("Could not configure speech. " + result.stderr.strip())
+    return result.stdout.strip()
+
+
 def setup(asr, compare):
+    provider = tts_provider()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise SystemExit("Native MLX requires an Apple Silicon Mac.")
     for executable in ("git", "uv", "ffmpeg", "xcodebuild"):
@@ -58,7 +80,7 @@ def setup(asr, compare):
     if not stamp.exists() or stamp.read_text().strip() != REVISION or not all(path.exists() for path in binaries):
         subprocess.run([str(SOURCE / "sglang_omni_mlx/native/scripts/build_runtime.sh"), str(STATE / "runtime")], env=environment, check=True)
         stamp.write_text(REVISION + "\n")
-    selected = [asr, "voxtral"] + (["qwen" if asr == "nemotron" else "nemotron"] if compare else [])
+    selected = [asr] + (["voxtral"] if provider == "local" else []) + (["qwen" if asr == "nemotron" else "nemotron"] if compare else [])
     for name in selected:
         repository, _, _, pin_file = MODELS[name]
         pins = json.loads((SOURCE / "sglang_omni_mlx/native/ci" / pin_file).read_text())[repository]
@@ -80,17 +102,20 @@ def setup(asr, compare):
 
 
 def start(asr):
+    provider = tts_provider(require_credentials=True)
+    workers = [(asr, 8765)] + ([("voxtral", 8766)] if provider == "local" else [])
     children = []
     try:
-        for name, port in ((asr, 8765), ("voxtral", 8766)):
+        for name, port in workers:
             repository, binary, _, _ = MODELS[name]
             command = [str(STATE / "runtime/bin" / binary), "--model-path", str(model_directory(name)), "--model-name", repository, "--host", "127.0.0.1", "--port", str(port)]
             if name == "voxtral":
                 command += ["--max-queued-requests", "1", "--request-timeout-s", "120"]
             children.append(subprocess.Popen(command))
-        environment = dict(os.environ, LOCAL_ASR_MODEL=MODELS[asr][0], LOCAL_ASR_URL="http://127.0.0.1:8765", LOCAL_TTS_MODEL=MODELS["voxtral"][0], LOCAL_TTS_URL="http://127.0.0.1:8766")
+        environment = dict(os.environ, TTS_PROVIDER=provider, LOCAL_ASR_MODEL=MODELS[asr][0], LOCAL_ASR_URL="http://127.0.0.1:8765", LOCAL_TTS_MODEL=MODELS["voxtral"][0], LOCAL_TTS_URL="http://127.0.0.1:8766")
         children.append(subprocess.Popen(["node", "--env-file-if-exists=.env", "dist/src/speech-server.js"], cwd=ROOT, env=environment))
-        print("Speech microservice: http://127.0.0.1:8764 by default; workers on 8765 and 8766. Ctrl+C stops all three processes.", flush=True)
+        synthesis = "local TTS on 8766" if provider == "local" else "ElevenLabs TTS"
+        print(f"Speech microservice: http://127.0.0.1:8764 by default; ASR on 8765; {synthesis}. Ctrl+C stops all child processes.", flush=True)
         while True:
             for child in children:
                 try:
