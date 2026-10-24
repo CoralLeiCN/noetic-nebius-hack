@@ -4,6 +4,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./config.js";
+import { CodexDebateAgent } from "./codex-agent.js";
+import { DebateService, type DebateAction } from "./debate-service.js";
+import { ModelCatalog } from "./models.js";
 import { publicError } from "./errors.js";
 import { recordSchema, RecordError } from "./video-record.js";
 import { CodexVideoAnalyzer, VideoService, type CreateVideo } from "./video-service.js";
@@ -59,7 +62,29 @@ async function upload(request: IncomingMessage): Promise<CreateVideo> {
   };
 }
 
-export function createVideoServer(service: VideoService, webDirectory = resolve("web")) {
+async function jsonBody(request: IncomingMessage, fields: string[], optional: string[] = []): Promise<Record<string, string>> {
+  if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") throw new RecordError(415, "Send application/json.");
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 64 * 1024) throw new RecordError(413, "Debate request exceeds 64 KiB.");
+    chunks.push(Buffer.from(chunk));
+  }
+  let body: unknown;
+  try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+  catch { throw new RecordError(400, "Send a valid JSON object."); }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.entries(body).some(([key, value]) => ![...fields, ...optional].includes(key) || typeof value !== "string") ||
+      fields.some(key => typeof (body as Record<string, unknown>)[key] !== "string")) {
+    throw new RecordError(400, `Expected text fields: ${fields.join(", ") || "none"}.`);
+  }
+  return body as Record<string, string>;
+}
+
+export function createVideoServer(service: VideoService, webDirectory = resolve("web"),
+  debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model))),
+  models = new ModelCatalog()) {
   let processing = false;
   const server = createServer(async (request, response) => {
     response.setHeader("x-content-type-options", "nosniff");
@@ -71,6 +96,29 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
       if (!host || !/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host)) throw new RecordError(403, "Use the local server address.");
       const url = new URL(request.url ?? "/", `http://${host}`);
       if (request.headers.origin && request.headers.origin !== url.origin) throw new RecordError(403, "Cross-origin requests are not allowed.");
+      if (request.method === "GET" && url.pathname === "/api/models") return json(response, 200, await models.list());
+      if (request.method === "POST" && url.pathname === "/api/debates") {
+        const body = await jsonBody(request, ["speakerId"], ["model"]);
+        const model = body.model === undefined ? undefined : await models.select(body.model);
+        return json(response, 201, await debates.create(body.speakerId!, model));
+      }
+      const debateRoute = /^\/api\/debates\/([a-f0-9-]{36})(?:\/(prepare|choose|respond|retry|end))?$/.exec(url.pathname);
+      if (debateRoute) {
+        const id = debateRoute[1]!;
+        if (request.method === "GET" && !debateRoute[2]) return json(response, 200, debates.get(id));
+        if (request.method === "POST" && debateRoute[2]) {
+          const action = debateRoute[2] as DebateAction;
+          const field = action === "prepare" ? "topic" : action === "choose" ? "side" : action === "respond" ? "contribution" : null;
+          const body = await jsonBody(request, field ? [field] : []);
+          try { return json(response, 200, await debates.act(id, action, field ? body[field] : undefined)); }
+          catch (error) {
+            let session;
+            try { session = debates.get(id); } catch { /* The session may have expired. */ }
+            return json(response, error instanceof RecordError ? error.status : 502,
+              { error: error instanceof RecordError ? error.message : publicError(error), session });
+          }
+        }
+      }
       if (request.method === "GET" && url.pathname === "/api/schema") return json(response, 200, recordSchema);
       if (request.method === "GET" && url.pathname === "/api/videos") return json(response, 200, await service.list());
       if (request.method === "POST" && url.pathname === "/api/videos") {
@@ -119,6 +167,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
         "/": ["index.html", "text/html; charset=utf-8"],
         "/app.js": ["app.js", "text/javascript; charset=utf-8"],
         "/style.css": ["style.css", "text/css; charset=utf-8"],
+        "/debate.js": ["debate.js", "text/javascript; charset=utf-8"],
       };
       const asset = Object.hasOwn(assets, url.pathname) ? assets[url.pathname] : undefined;
       if (request.method === "GET" && asset) {
@@ -135,6 +184,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
   });
   server.requestTimeout = 180_000;
   server.headersTimeout = 30_000;
+  server.once("close", () => { void debates.close().catch(() => {}); });
   return server;
 }
 
@@ -145,7 +195,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const service = new VideoService(resolve("data"), new CodexVideoAnalyzer(loadConfig));
     const server = createVideoServer(service);
     server.on("error", () => { console.error("Could not start the local video service. Check whether PORT is already in use."); process.exitCode = 1; });
-    server.listen(port, "127.0.0.1", () => console.log(`Video records: http://127.0.0.1:${port}`));
+    server.listen(port, "127.0.0.1", () => console.log(`Debate practice and source library: http://127.0.0.1:${port}`));
     for (const event of ["SIGINT", "SIGTERM"] as const) process.once(event, () => { server.close(); server.closeAllConnections(); });
   } catch (error) { console.error(error instanceof RecordError ? error.message : publicError(error)); process.exitCode = 1; }
 }

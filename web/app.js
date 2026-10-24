@@ -33,6 +33,7 @@ async function refresh(preferredId) {
   showError("library-error", "");
   try {
     const records = await api("/api/videos");
+    document.dispatchEvent(new CustomEvent("speakers-updated", { detail: records }));
     $("record-count").textContent = `${records.length} record${records.length === 1 ? "" : "s"}`;
     $("record-list").replaceChildren();
     for (const record of records) {
@@ -145,6 +146,10 @@ for (const button of document.querySelectorAll("[data-input]")) button.addEventL
 });
 for (const button of document.querySelectorAll("[data-view]")) button.addEventListener("click", () => { currentView = button.dataset.view; void render(); });
 $("refresh").addEventListener("click", () => { void refresh(); });
+$("debate-this-speaker").addEventListener("click", () => {
+  if (selected) document.dispatchEvent(new CustomEvent("choose-debate-speaker", { detail: selected.id }));
+});
+document.addEventListener("review-speaker-source", event => { void select(event.detail); });
 $("cancel").addEventListener("click", () => requestController?.abort());
 $("upload-form").addEventListener("submit", async event => {
   event.preventDefault();

@@ -14,7 +14,7 @@ Build a debate assistant that helps a human practice discussing a topic, develop
 
 ## Current scope
 
-Implement the topic-to-practice workflow as a local text CLI using the Codex SDK and a configurable Nebius endpoint. Structured competition sessions remain future work.
+Implement the topic-to-practice workflow as a local web app and text CLI using the Codex SDK and a configurable Nebius endpoint. In the web app, the human chooses a ready speaker from saved source records, enters a topic, reviews positions and starts a multi-turn debate. The opponent is a labeled simulation informed by the speaker's documented remarks. Structured competition sessions remain future work.
 
 ## Backlog
 
@@ -22,4 +22,5 @@ Implement the topic-to-practice workflow as a local text CLI using the Codex SDK
 - [x] Add side selection for the human and assistant.
 - [x] Generate arguments for the assistant's selected side.
 - [x] Support an interactive exchange of arguments, questions, and responses.
+- [x] Add a web debate room with topic entry, ready-speaker selection and source-informed responses.
 - **Future: form a structured debate.** Build on the practice workflow to support a complete debate session. Define the debate format, turn structure, and completion criteria when this feature is taken up.

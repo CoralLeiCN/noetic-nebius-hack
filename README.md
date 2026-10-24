@@ -1,6 +1,6 @@
 # Debate Practice Assistant
 
-A local CLI for practicing a debate against an assistant. Enter a topic, review an affirmative and a negative position on one motion, choose your side, and exchange arguments with the opposing assistant.
+A local web app and CLI for practicing a debate against an assistant. Enter a topic, review an affirmative and a negative position on one motion, choose your side, and exchange arguments with the opposing assistant. In the web app, choose a ready speaker from your source library to practice against an opponent informed by their saved remarks.
 
 Codex is the agent harness, accessed through the official TypeScript Codex SDK. Nebius is the initial model provider. The API base URL and model are configurable; the endpoint must support the Responses protocol used by the pinned Codex runtime.
 
@@ -21,7 +21,7 @@ NEBIUS_API_KEY=your-key
 NEBIUS_MODEL=your-model-id
 ```
 
-The example host is not a fallback. All three variables are required. You can also export them in your shell; existing environment values take precedence over `.env`. The application loads `.env` through Node.js, without an additional dotenv dependency.
+The example host is not a fallback. The base URL and API key are required. Web debate practice lets you choose a model in the interface without setting `NEBIUS_MODEL`; the CLI, provider check and source-record generation still use `NEBIUS_MODEL`. You can also export these values in your shell; existing environment values take precedence over `.env`. The application loads `.env` through Node.js, without an additional dotenv dependency.
 
 Use the complete base URL, including a version or deployment prefix, without appending `/responses` or `/chat/completions`. For another compatible provider, change these same variables. Remote endpoints require HTTPS; HTTP loopback endpoints are supported for local tests.
 
@@ -71,6 +71,35 @@ Session state is held in memory. Codex may write conversation history and diagno
 
 Never commit `.env` or put credentials in a topic. `.env`, build output, and dependencies are ignored by Git.
 
+## Web debate practice
+
+```sh
+npm run start:web
+```
+
+Open [debate practice](http://127.0.0.1:3000). Enter a topic, choose a ready speaker and a model, and select **Prepare debate**. Review the two positions, then take either side to start the opponent's opening. Send arguments or questions to continue. Regenerate positions before choosing a side, retry failed generations, or end the debate at any time. Starting a new debate lets you change the topic, speaker or model. **Source library** opens the existing record tools, and **Debate this speaker** selects a record for practice.
+
+The model picker groups DeepSeek and MiniMax models returned by the configured endpoint's authenticated `/models` API. If `NEBIUS_MODEL` is configured and returned by that endpoint, it is also offered and selected by default. Otherwise the first available choice is selected. Model lists are cached on the server for five minutes; **Refresh models** retries discovery after a failure. A selected model is fixed for preparation, opening arguments and every subsequent turn, including retries. Model availability in the list does not certify compatibility with the pinned Codex runtime; generation errors remain visible and no other model is used automatically. Nebius publishes its [API reference](https://api.tokenfactory.nebius.com/docs) and [current model catalog](https://tokenfactory.nebius.com/api/public/models_info).
+
+A ready speaker is a saved, validated source record. The opponent receives complete remarks and their cue references from that record, within a bounded context budget; the interface reports how many remarks were supplied. The model is instructed to use those remarks where relevant, preserve uncertainty, and cite them as `[cue N]`. Generated arguments are a simulation, not statements by the actual person. The assigned side is a practice role; when the source does not address the topic, the model is instructed to identify that gap and make hypothetical arguments.
+
+The browser keeps the current session ID and model preference in session storage and restores server state after a reload. Debate sessions and transcripts are held in server memory, expire after one hour of inactivity, and disappear on server restart. At most 20 debates can be open at once. Ending aborts generation and disposes the isolated runtime; completed messages remain visible until another debate starts or the session expires. Credentials stay on the server. Generating positions and arguments uses the configured provider and consumes provider credits.
+
+The JSON API supports:
+
+| Method | Path | JSON body |
+| --- | --- | --- |
+| GET | `/api/models` | None; returns `models` and `defaultModel` |
+| POST | `/api/debates` | `{ "speakerId": "saved-record-id", "model": "provider/model-id" }`; omit `model` to use `NEBIUS_MODEL` |
+| GET | `/api/debates/:id` | None |
+| POST | `/api/debates/:id/prepare` | `{ "topic": "Your topic" }` |
+| POST | `/api/debates/:id/choose` | `{ "side": "affirmative" }` or `{ "side": "negative" }` |
+| POST | `/api/debates/:id/respond` | `{ "contribution": "Your argument" }` |
+| POST | `/api/debates/:id/retry` | `{}` |
+| POST | `/api/debates/:id/end` | `{}` |
+
+Successful requests return a session snapshot. Failed session actions return a sanitized `error` and the current `session` snapshot when available, preserving the pending input for retry. Topics are limited to 2,000 characters, contributions to 12,000 characters, and JSON requests to 64 KiB. The local server enforces the same loopback and origin restrictions for debate and source routes.
+
 ## Video records
 
 Run the frontend and backend locally:
@@ -79,7 +108,7 @@ Run the frontend and backend locally:
 npm run start:web
 ```
 
-Open [the source library](http://127.0.0.1:3000). Enter a speaker name. In **Video**, choose **Paste link** or **Upload file**. In **Transcript**, choose **Paste text** or **Upload file**. The title is optional. The interface shows saved records, summaries linked to supporting remarks, original transcripts, structured JSON and uploaded-video playback. Set `PORT` to change the local port.
+Open [the web app](http://127.0.0.1:3000) and select **Source library**. Enter a speaker name. In **Video**, choose **Paste link** or **Upload file**. In **Transcript**, choose **Paste text** or **Upload file**. The title is optional. The interface shows saved records, summaries linked to supporting remarks, original transcripts, structured JSON and uploaded-video playback. Set `PORT` to change the local port.
 
 The backend uses the Codex SDK with the same provider configuration as the debate CLI. Provider credentials stay on the server. Browsing saved records does not require provider credentials; generating a record requires the `.env` settings above and consumes provider credits. The transcript supplies the words; video uploads are retained as source material and are not automatically transcribed or sent to the model.
 
@@ -93,4 +122,4 @@ Each record is checked against the [strict versioned JSON Schema](schema/video-r
 - [Video-record service and API](doc/video-record-service.md)
 - [Judger documentation](doc/judger/README.md) (planned module)
 
-Structured competition rounds, judging, scoring, voice, and a graphical debate-practice interface remain in the backlog.
+Structured competition rounds, judging, scoring, voice, and browsing archived debates remain in the backlog.

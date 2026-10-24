@@ -13,9 +13,14 @@ export interface RequestRecord {
 }
 export type FixtureReply = string | { status: number; body: string };
 
-export async function providerFixture(respond: (request: RequestRecord, index: number) => FixtureReply | Promise<FixtureReply>) {
+export async function providerFixture(respond: (request: RequestRecord, index: number) => FixtureReply | Promise<FixtureReply>, modelIds: string[] = []) {
   const requests: RequestRecord[] = [];
   const server = createServer(async (request, response) => {
+    if (request.method === "GET" && request.url === "/custom/v1/models") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: modelIds.map(id => ({ id })) }));
+      return;
+    }
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     let body: Record<string, unknown>;

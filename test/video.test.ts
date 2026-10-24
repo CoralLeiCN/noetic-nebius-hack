@@ -150,7 +150,7 @@ test("upload API uses the real Codex SDK, enforces output schema, and serves sou
     assert.equal((await fetch(`${base}/api/videos/${record.id}/files/.env`)).status, 404);
     assert.equal((await fetch(`${base}/api/schema`)).status, 200);
     const page = await fetch(base);
-    assert.match(await page.text(), /Source Library/);
+    assert.match(await page.text(), /Source library/);
     assert.match(page.headers.get("content-security-policy") ?? "", /script-src 'self'/);
     assert.equal((await fetch(`${base}/api/videos`, { method: "POST", headers: { origin: "https://external.example" }, body: multipart() })).status, 403);
     const duplicate = multipart(); duplicate.append("speakerName", "Other");

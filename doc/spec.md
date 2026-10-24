@@ -1,6 +1,6 @@
 # Debate Practice Assistant Specification
 
-Status: Initial CLI implemented. Local SDK and CLI verification is recorded in the test suite; live Nebius compatibility requires running `npm run check:provider` with configured credentials.
+Status: CLI and web debate practice implemented, including source-based speaker selection in the web app. Local SDK, HTTP API and CLI verification is recorded in the test suite; live Nebius compatibility requires running `npm run check:provider` with configured credentials.
 
 Product intent: [intent.md](intent.md). Technology choices and provider configuration: [tech-stack.md](tech-stack.md).
 
@@ -46,6 +46,14 @@ Only one assistant turn may be active per session. Show when generation is in pr
 The human can end the session at any time or start another topic. Ending does not require a winner, score, or formal closing round.
 
 ## Session behavior
+
+The web app first selects a saved, validated speaker source record alongside the topic. Each record is a selectable opponent, labeled by speaker name and source title. The source library remains available for adding and reviewing records. The chosen record is copied into the debate context so later source selection cannot alter an active debate.
+
+The human also chooses a model from the configured provider's live model list, initially limited to DeepSeek, MiniMax and any configured default model present in that list. The server caches discovery for five minutes and validates the selection before creating an agent. The same model is used for all session actions and restored with the session snapshot. Choosing a model in the web app requires only the provider base URL and API key; it does not require `NEBIUS_MODEL`.
+
+The opponent is explicitly labeled as a simulation. Its prompt includes bounded, complete source remarks with cue references, uncertainty notes and limitations. The model must not present generated arguments as the real speaker's statements or fabricate their position on an unrelated topic. The assigned side is a practice role. The interface displays both assignments, the source title and context coverage.
+
+The web interface supports position regeneration, side selection, completed messages, failed-generation retries and ending during generation. Changing the topic or source starts a new debate. Refreshing the page restores the current session by ID while the server still holds it. Sessions expire after one hour of inactivity; server restart clears them.
 
 | State | Allowed actions | Successful transition |
 | --- | --- | --- |
@@ -94,6 +102,6 @@ The standalone [technology document](tech-stack.md) describes the implementation
 - Structured competition sessions with defined rounds, speaking order, time limits, rebuttals, and closing statements.
 - Judging, scoring, and coaching feedback.
 - Voice interaction.
-- A richer graphical interface and browsing previous sessions, subject to later product decisions.
+- Browsing archived debate sessions, subject to later product decisions.
 
 These features are outside the first practice workflow.

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, loadProviderConfig } from "../src/config.js";
 import { publicError } from "../src/errors.js";
 
 const env = { NEBIUS_BASE_URL: "https://example.com/deployment/v1/", NEBIUS_API_KEY: "secret-for-test", NEBIUS_MODEL: "configured/model" };
@@ -8,6 +8,14 @@ const env = { NEBIUS_BASE_URL: "https://example.com/deployment/v1/", NEBIUS_API_
 test("custom endpoint paths and model IDs are preserved", () => {
   assert.deepEqual(loadConfig(env), { baseUrl: "https://example.com/deployment/v1", apiKey: env.NEBIUS_API_KEY, model: env.NEBIUS_MODEL });
   assert.equal(loadConfig({ ...env, NEBIUS_BASE_URL: "http://127.0.0.1:1234/v1" }).baseUrl, "http://127.0.0.1:1234/v1");
+});
+
+test("model discovery needs only provider credentials and a web selection overrides the environment model", () => {
+  const provider = { NEBIUS_BASE_URL: env.NEBIUS_BASE_URL, NEBIUS_API_KEY: env.NEBIUS_API_KEY };
+  assert.deepEqual(loadProviderConfig(provider), { baseUrl: "https://example.com/deployment/v1", apiKey: env.NEBIUS_API_KEY });
+  assert.equal(loadConfig(provider, "MiniMaxAI/MiniMax-M3").model, "MiniMaxAI/MiniMax-M3");
+  assert.equal(loadConfig(env, "deepseek-ai/DeepSeek-V4.1-Flash").model, "deepseek-ai/DeepSeek-V4.1-Flash");
+  assert.throws(() => loadConfig(provider), /NEBIUS_MODEL/);
 });
 
 test("configuration rejects missing fields and unsafe or operation URLs", () => {
