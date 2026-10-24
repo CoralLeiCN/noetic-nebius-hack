@@ -15,3 +15,7 @@ The judge receives the topic, shared motion and positions, bounded speaker sourc
 The application validates the model's structured output before accepting it. Each side receives a numeric score from 0 to 100 and the evaluation includes a nonempty rationale. Accepted results carry the provisional criteria label. Failed generation or malformed output leaves the transcript intact and offers a retry; no placeholder or random scores are displayed.
 
 Judging is available only after the exchange is complete. Ending the session aborts in-progress work and prevents late judge output from being committed. Credentials and raw provider errors are excluded from public session data.
+
+## Draft rubric
+
+- [Scoring rubric](scoring-rubric.md): proposed dimensions, level descriptors, violations, speaker points, decision procedure and output format for structured 1v1 human–AI debates adapted from British Parliamentary rules. This six-speech format is a design draft for future structured sessions; the current four-contribution Arena exchange continues to use the provisional criteria above.
