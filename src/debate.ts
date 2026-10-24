@@ -1,15 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { DebateError } from "./errors.js";
+import type { ModelOption } from "./models.js";
 
 export type Side = "affirmative" | "negative";
 export interface Positions { motion: string; affirmative: string; negative: string }
 export interface Message { role: "human" | "assistant"; text: string }
+export interface SpeakerContext {
+  personaId: string;
+  name: string;
+  personaMarkdown: string;
+}
 export interface PracticeContext {
   topic: string;
   positions: Positions;
   humanSide: Side;
   assistantSide: Side;
   messages: Message[];
+  speaker?: SpeakerContext;
 }
 export interface DebateAgent {
   prepare(topic: string, signal: AbortSignal): Promise<Positions>;
@@ -30,6 +37,8 @@ export interface Snapshot {
   assistantSide: Side | null;
   messages: Message[];
   pending: Pending | null;
+  speaker?: SpeakerContext;
+  model?: ModelOption;
 }
 
 export function nonempty(value: string, label: string): string {
@@ -64,7 +73,10 @@ export class DebateSession {
     humanSide: null, assistantSide: null, messages: [], pending: null,
   };
   private controller: AbortController | null = null;
-  constructor(private readonly agent: DebateAgent) {}
+  constructor(private readonly agent: DebateAgent, speaker?: SpeakerContext, model?: ModelOption) {
+    if (speaker) this.state.speaker = structuredClone(speaker);
+    if (model) this.state.model = structuredClone(model);
+  }
   get snapshot(): Snapshot { return structuredClone(this.state); }
 
   async prepare(topic: string): Promise<void> {
@@ -114,7 +126,8 @@ export class DebateSession {
   private context(): PracticeContext {
     const { topic, positions, humanSide, assistantSide, messages } = this.state;
     if (!positions || !humanSide || !assistantSide) throw new DebateError("Choose a side before practicing.");
-    return structuredClone({ topic, positions, humanSide, assistantSide, messages });
+    return structuredClone({ topic, positions, humanSide, assistantSide, messages,
+      ...(this.state.speaker ? { speaker: this.state.speaker } : {}) });
   }
 
   private async execute(): Promise<void> {

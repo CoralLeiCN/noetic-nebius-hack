@@ -6,7 +6,7 @@ export interface ProviderConfig {
   model: string;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProviderConfig {
+export function loadProviderConfig(env: NodeJS.ProcessEnv = process.env): Omit<ProviderConfig, "model"> {
   function required(name: string): string {
     const value = env[name]?.trim();
     if (!value) throw new DebateError(`Set ${name} in the environment or .env file.`);
@@ -29,6 +29,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProviderConfig
   return {
     baseUrl: url.toString().replace(/\/+$/, ""),
     apiKey: required("NEBIUS_API_KEY"),
-    model: required("NEBIUS_MODEL"),
   };
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, selectedModel = env.NEBIUS_MODEL): ProviderConfig {
+  const provider = loadProviderConfig(env);
+  const model = selectedModel?.trim();
+  if (!model) throw new DebateError("Set NEBIUS_MODEL in the environment or .env file, or choose a model for web debate practice.");
+  return { ...provider, model };
 }

@@ -1,4 +1,4 @@
-# Video-record service
+# Source records and speaker personas
 
 ## Workflow
 
@@ -10,6 +10,33 @@ The backend normalizes either transcript input to bytes, parses transcript cues,
 
 The source library supports record selection, summaries with links to supporting remarks, speaker remarks with original timestamps, full-transcript inspection, structured JSON downloads, and playback of uploaded video. Clicking a timestamp seeks an uploaded video. Untimed source text is marked as untimed.
 
+## Speaker persona compilation
+
+Source records are training material for a reusable speaker persona. They are not passed directly into practice. After reviewing a source record, build or update the speaker persona in the library. All validated records matching the same normalized speaker name contribute to the compilation. Consistent naming groups a speaker's sources; different people must use distinct names.
+
+The compiler uses the official Codex SDK and the existing ChatGPT OAuth login associated with `CODEX_HOME` (default `~/.codex`). Sign in with `codex -c 'cli_auth_credentials_store="file"' login` before building a persona. The compiler requires a file-backed OAuth login; an API-key or keyring-only login is not used. `CODEX_PERSONA_MODEL` optionally selects the compiler model; otherwise Codex uses its default. Persona compilation does not use the Nebius credentials or fall back to the source-extraction provider. It uses isolated task configuration and history, with tools disabled. See [Codex authentication](https://learn.chatgpt.com/docs/auth).
+
+The persona covers these dimensions:
+
+| Dimension | Practice behavior |
+| --- | --- |
+| Language and vocabulary | Preferred words, expressions, register and use of technical or everyday language. |
+| Sentence structure and rhythm | Sentence length, repetition, transitions and phrasing patterns observable in text. |
+| Tone and register | Formality, directness, warmth, intensity and audience adaptation. |
+| Rhetorical devices | Questions, analogies, contrasts, stories and emphasis. |
+| Argument structure | How claims, explanations, examples and conclusions are connected. |
+| Use of evidence and examples | Treatment of statistics, testimony, lived experience and source attribution. |
+| Interaction and rebuttal | Responses to challenges, concessions, reframing and questions. |
+| Uncertainty and expressed values | Qualification, confidence, recurring priorities and limits of the available evidence. |
+
+Each dimension records an observation, guidance for practice, confidence (`high`, `medium`, `low` or `unknown`) and supporting evidence. Evidence quotes are checked against saved remarks; the Markdown carries source references rather than raw source passages. Insufficient evidence stays explicit. Transcript-derived observations do not establish acoustic voice characteristics or justify invented beliefs. The saved Markdown describes a simulation and keeps new debate arguments separate from the person's actual statements.
+
+Persona analysis accepts at most 120,000 serialized characters of source input. Larger inputs fail explicitly without truncation. Compiled Markdown is limited to 48,000 characters; an oversized result is rejected without publication. Only one persona compilation runs at a time; another build request returns 429.
+
+Compilation saves `persona.md` and `persona.json` under `data/persona-<uuid>/`. The library lets the human inspect and download the Markdown. Compilation supplies prompt context rather than fine-tuning model weights. Updating source material does not update a persona automatically: rebuild the persona and start a new debate to use the new version.
+
+Practice reads only the saved persona Markdown as speaker context, identified by `personaId`. Source remarks, transcripts and summaries stay in the library. The current debate keeps its copied persona even if another version is compiled.
+
 ## Codex integration
 
 `CodexVideoAnalyzer` uses the official `@openai/codex-sdk`, pinned to the repository's existing version, and the provider settings `NEBIUS_BASE_URL`, `NEBIUS_API_KEY` and `NEBIUS_MODEL`. It shares the existing isolated runtime configuration: a private temporary Codex home, replacement task instructions, read-only sandbox, disabled tools and integrations, no approval prompts and no provider fallback. Each generation gets a fresh thread and removes its temporary runtime afterward.
@@ -18,7 +45,7 @@ The SDK's `outputSchema` constrains generated analysis. The application independ
 
 The schema used during generation permits empty remark and summary arrays to report no match. The persisted-record schema requires both arrays to be nonempty.
 
-Only the speaker name and parsed transcript cues are sent to the configured model provider for inference. The video binary, source URLs and title remain in local storage. SDK history may contain transcript data while a request is running; temporary history is removed on normal disposal. Browsing records does not invoke the model. The local UI does not need provider credentials until generation is requested.
+For source extraction, only the speaker name and parsed transcript cues are sent to the configured model provider for inference. The video binary, source URLs and title remain in local storage. SDK history may contain transcript data while a request is running; temporary history is removed on normal disposal. Browsing records does not invoke the model. The local UI does not need provider credentials until source generation is requested. Persona compilation separately sends the saved speaker material to Codex through the OAuth login.
 
 ## Strict schema and validation
 
@@ -49,6 +76,10 @@ New records contain `README.md`, `record.json`, `transcript.txt`, `speaker-remar
 | `POST` | `/api/videos` | Generate and save a record; returns HTTP 201 and the full record. |
 | `GET` | `/api/videos/:id` | Validated structured record. |
 | `GET` | `/api/videos/:id/files/:name` | Allowlisted artifact, including byte-range requests for video playback. |
+| `GET` | `/api/personas` | Latest compiled persona per normalized speaker name: ID, name, creation date and source count. |
+| `POST` | `/api/personas` | Compile all sources for `{ "speakerName": "Name" }`; return the saved persona. |
+| `GET` | `/api/personas/:id` | Saved persona metadata and Markdown. |
+| `GET` | `/api/personas/:id/files/persona.md` | Download the persona Markdown used by practice. |
 
 `POST /api/videos` accepts only multipart form data with these fields:
 
@@ -67,8 +98,8 @@ Errors return `{ "error": "application-owned message" }`. Validation failures us
 
 ## Local operation and verification
 
-The server binds to `127.0.0.1` and accepts local Host headers and same-origin browser requests. It is intended for local use and has no multiuser authentication. Only one upload/generation is admitted at a time; other requests to generate return 429, while saved records remain readable. Credentials are never returned to the frontend. Filenames and IDs are constrained, artifacts are allowlisted, and symlinks are rejected at record and artifact boundaries. The browser renders source and generated text as text rather than HTML.
+The server binds to `127.0.0.1` and accepts local Host headers and same-origin browser requests. It is intended for local use and has no multiuser authentication. Only one source upload/generation is admitted at a time; other requests to generate return 429, while saved records remain readable. Credentials are never returned to the frontend. Filenames and IDs are constrained, artifacts are allowlisted, and symlinks are rejected at record and artifact boundaries. The browser renders source and generated text as text rather than HTML.
 
 Uploaded videos and temporary publication folders are ignored by Git. Structured records, transcripts and Markdown remain ordinary repository data. Back up any locally retained video files separately if needed.
 
-Run `npm run typecheck` and `npm test`. The tests cover source parsing, strict schema rejection, quote fidelity, source hash verification, atomic publication, invalid uploads, byte-range delivery, origin restrictions, concurrency, and a full multipart upload through the real Codex SDK and runtime against a local Responses fixture. The fixture tests use no provider credits. Live inference quality depends on the configured provider and should be reviewed with actual user material.
+Run `npm run typecheck` and `npm test`. The tests cover source parsing, strict schema rejection, quote fidelity, source hash verification, atomic publication, invalid uploads, byte-range delivery, origin restrictions, concurrency, and a full multipart upload through the real Codex SDK and runtime against a local Responses fixture. The fixture tests use no provider credits. Live source-extraction quality depends on the configured provider. Live persona quality and model access depend on the Codex OAuth account. Review both with actual user material; local fixture tests do not verify live OAuth inference.

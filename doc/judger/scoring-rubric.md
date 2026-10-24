@@ -1,6 +1,6 @@
 # Scoring rubric for 1v1 human–AI debates
 
-Status: design draft for the planned judger module. Not yet implemented.
+Status: design draft for judging future structured debate sessions. Not yet implemented in Arena, which currently uses provisional criteria for a four-contribution exchange.
 
 This rubric applies to one-on-one debates between a human and an AI, adapted from British Parliamentary (BP) rules. Government and Opposition each speak three times: a constructive speech, an extension speech and a summary speech. It is intended for the judge model and for human adjudicators and debaters.
 
@@ -24,7 +24,7 @@ This rubric scores how well each side debates. It is separate from the style ass
 | Dimension | Weight | Core question |
 |---|---|---|
 | Analysis | 30% | Do the arguments stand up? Why are they true, and why do they matter? |
-| Engagement and weighing | 25% | Did the speaker answer the opponent's strongest arguments? Did they show why their side matters more? |
+| Engagement and weighing | 25% | Did the speaker engage with the opposing case, anticipating it in the first speech and answering it thereafter? Did they show why their side matters more? |
 | Role fulfilment | 20% | Did the speech perform its duties in the format? |
 | Delivery and persuasion | 15% | Can the audience follow easily, and are they persuaded? |
 | Examples | 10% | Are examples specific, credible and genuinely supportive of the argument? |
@@ -53,17 +53,20 @@ A complete argument has three parts: a **claim** (what I believe), a **mechanism
 
 **Weighing** means explicitly comparing the importance of each side's arguments. Common criteria are scale (how many people are affected), probability (how likely it is to happen), urgency (how soon), reversibility (whether harm can be undone) and the vulnerability of the people affected.
 
-| Score | Descriptor |
-|---|---|
-| 5 | Answers the opponent's strongest argument and identifies a specific flaw. No key opposing argument is left unanswered. Uses weighing criteria explicitly to show why their side matters more. |
-| 4 | Answers most key arguments; weighing is present but not explicit enough. |
-| 3 | Responds, but to secondary arguments, or repeats their own case instead of rebutting. Little or no weighing. |
-| 2 | Superficial responses ("my opponent is wrong"); key arguments are left unanswered. |
-| 1 | Ignores the opponent entirely. |
+Government constructive is the first speech, before Opposition has presented its case. Use the opening-specific descriptors below to assess how the speech anticipates a reasonable opposing case and weighs the alternatives. Score only anticipation and comparisons actually present in the speech; do not invent objections for the speaker or judge the opening against arguments raised later. A speech can earn 5 without receiving a POI. All later speeches use the response-based descriptors.
+
+| Score | Government constructive | All later speeches |
+|---|---|---|
+| 5 | Addresses the strongest reasonable objection to its case with a specific answer. Uses weighing criteria explicitly to show why its side matters more than the alternative. | Answers the opponent's strongest argument and identifies a specific flaw. No key opposing argument is left unanswered. Uses weighing criteria explicitly to show why their side matters more. |
+| 4 | Addresses relevant anticipated objections; weighing is present but not explicit enough. | Answers most key arguments; weighing is present but not explicit enough. |
+| 3 | Addresses only a secondary anticipated objection, or asserts its own case without developing the comparison. Little or no weighing. | Responds, but to secondary arguments, or repeats their own case instead of rebutting. Little or no weighing. |
+| 2 | Dismisses the opposing case superficially, without a substantive answer or comparison. | Superficial responses ("my opponent is wrong"); key arguments are left unanswered. |
+| 1 | Does not address an opposing case or compare alternatives. | Ignores the opponent entirely. |
 
 **Recording rules:**
 
 - A key argument that the opponent never answers is treated as conceded by the opponent.
+- Before Opposition has spoken, there are no unanswered opposing arguments to record; anticipated objections are not concessions by Opposition.
 - Points of Information (POIs) count towards this dimension. Offering a POI that exposes a real weakness is evidence for a higher score. Answering a POI directly and effectively is evidence for a higher score; dodging it is evidence for a lower one.
 - A speaker who was offered POIs but accepted none loses 1 mark on this dimension (minimum 1).
 
@@ -130,7 +133,7 @@ Speakers cannot research outside the preparation phase, so this dimension reward
 
 ### 5.1 Speaker points
 
-1. For each dimension, average the side's scores across its three speeches (for examples, use only the first two speeches).
+1. For each dimension, average the side's scores across its three speeches (for examples, use only the first two speeches). Include Government constructive's numeric engagement score using its opening-specific descriptors; the engagement weight remains 25% for both sides.
 2. Apply the weights to get a weighted average from 1 to 5.
 3. Convert to speaker points: **speaker points = 50 + (weighted average − 1) × 12.5**, giving a range of 50 to 100.
 
@@ -173,7 +176,7 @@ After each speech:
   "scores": {"analysis": 4, "engagement": 3, "role": 5, "delivery": 4, "examples": 3},
   "evidence_quotes": {"analysis": "Quoted sentence from the speech as evidence"},
   "violations": [],
-  "unanswered_points": ["Opposing argument not yet answered"]
+  "unanswered_points": []
 }
 ```
 

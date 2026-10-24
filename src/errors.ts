@@ -18,6 +18,6 @@ export function publicError(error: unknown): string {
     return "Provider rejected the request. Check the base URL, model, and Codex Responses compatibility.";
   }
   if (/timeout|timed.out/i.test(text)) return "Generation timed out. Retry or start a new session.";
-  if (/ENOENT|executable|spawn/i.test(text)) return "Codex could not start. Reinstall dependencies with npm ci.";
+  if (/ENOENT|executable|spawn|Codex CLI binaries/i.test(text)) return "Codex could not start. Reinstall dependencies with npm ci, including optional dependencies.";
   return "Generation failed. Check provider availability and configuration, then retry.";
 }
