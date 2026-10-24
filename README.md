@@ -1,6 +1,6 @@
 # Debate Practice Assistant
 
-A local web app and CLI for practicing a debate against an assistant. Enter a topic, review an affirmative and a negative position on one motion, choose your side, and exchange arguments with the opposing assistant. In the web app, choose a ready speaker from your source library to practice against an opponent informed by their saved remarks.
+A local web app and CLI for practicing a debate against an assistant. Enter a topic, review an affirmative and a negative position on one motion, choose your side, and exchange arguments with the opposing assistant. In the web app, choose a ready speaker from your source library to practice against an opponent informed by their saved remarks. Arena compares models and providers through the same practice module and visualizes scores from a separately selected judge.
 
 Codex is the agent harness, accessed through the official TypeScript Codex SDK. Nebius is the initial model provider. The API base URL and model are configurable; the endpoint must support the Responses protocol used by the pinned Codex runtime.
 
@@ -100,6 +100,36 @@ The JSON API supports:
 
 Successful requests return a session snapshot. Failed session actions return a sanitized `error` and the current `session` snapshot when available, preserving the pending input for retry. Topics are limited to 2,000 characters, contributions to 12,000 characters, and JSON requests to 64 KiB. The local server enforces the same loopback and origin restrictions for debate and source routes.
 
+## Arena model comparison
+
+Open **Arena** in the web app. Choose a ready speaker, a topic, two different participant models or providers, and a judge model. Prepare the shared positions, review them, then run the exchange. Each participant produces an opening and a rebuttal using the same `CodexDebateAgent` methods and source context as Practice. The four completed contributions remain visible for review. Afterward, ask the selected judge to score the exchange; the interface displays both scores and its rationale.
+
+The judge criteria are a prompt placeholder. All scores are explicitly provisional, range from 0 to 100, and describe this exchange under its assigned sides and speaking order. They do not establish a general model ranking. Failed or invalid judge output produces an error and can be retried; the app does not substitute sample scores. See [the judger documentation](doc/judger/README.md) for the current evaluation contract.
+
+By default Arena uses the existing `NEBIUS_BASE_URL` and `NEBIUS_API_KEY`. To compare providers, set `ARENA_PROVIDERS` to a JSON array in `.env`, with keys stored in separate environment variables:
+
+```dotenv
+ARENA_PROVIDERS='[{"id":"nebius","name":"Nebius","baseUrl":"https://api.tokenfactory.nebius.com/v1","apiKeyEnv":"NEBIUS_API_KEY"},{"id":"other","name":"Other provider","baseUrl":"https://api.example.com/v1","apiKeyEnv":"OTHER_API_KEY","defaultModel":"model-id"}]'
+OTHER_API_KEY=your-other-key
+```
+
+Each profile provides a unique `id`, display `name`, API `baseUrl`, and `apiKeyEnv` naming the server environment variable containing its key. `defaultModel` is optional. These settings are administrator configuration; the browser receives model identifiers and provider labels, without keys. Arena discovers models from each provider's authenticated `/models` endpoint and supports any returned valid model identifier. Each selected endpoint still needs Codex Responses compatibility. No failed request falls back to another model or provider.
+
+The Arena API supports:
+
+| Method | Path | JSON body |
+| --- | --- | --- |
+| GET | `/api/arena/models` | None; returns public model choices and their selection keys |
+| POST | `/api/arenas` | `{ "speakerId": "saved-record-id", "affirmativeModel": "provider:model-id", "negativeModel": "provider:other-model-id", "judgeModel": "provider:judge-model-id" }` |
+| GET | `/api/arenas/:id` | None |
+| POST | `/api/arenas/:id/prepare` | `{ "topic": "Your topic" }` |
+| POST | `/api/arenas/:id/run` | `{}` |
+| POST | `/api/arenas/:id/judge` | `{}` |
+| POST | `/api/arenas/:id/retry` | `{}` |
+| POST | `/api/arenas/:id/end` | `{}` |
+
+Use the exact selection `key` returned by `/api/arena/models` for each model field. Failed actions return a sanitized error and session snapshot when available. Retry preserves confirmed contributions, and ending cancels further generation. Arena sessions are held in memory, expire after one hour of inactivity, and disappear on server restart. Generation and judging consume credits at the selected providers.
+
 ## Video records
 
 Run the frontend and backend locally:
@@ -120,6 +150,6 @@ Each record is checked against the [strict versioned JSON Schema](schema/video-r
 - [Behavior specification](doc/spec.md)
 - [Technology stack](doc/tech-stack.md)
 - [Video-record service and API](doc/video-record-service.md)
-- [Judger documentation](doc/judger/README.md) (planned module)
+- [Judger documentation](doc/judger/README.md)
 
-Structured competition rounds, judging, scoring, voice, and browsing archived debates remain in the backlog.
+Complete competition formats, final judging criteria, voice, and browsing archived debates remain in the backlog.

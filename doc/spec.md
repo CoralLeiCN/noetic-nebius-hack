@@ -1,6 +1,6 @@
 # Debate Practice Assistant Specification
 
-Status: CLI and web debate practice implemented, including source-based speaker selection in the web app. Local SDK, HTTP API and CLI verification is recorded in the test suite; live Nebius compatibility requires running `npm run check:provider` with configured credentials.
+Status: CLI and web debate practice implemented, including source-based speaker selection, plus a web Arena for model comparisons and provisional judging. Local SDK, HTTP API and CLI verification is recorded in the test suite; live provider compatibility requires configured credentials and endpoint verification.
 
 Product intent: [intent.md](intent.md). Technology choices and provider configuration: [tech-stack.md](tech-stack.md).
 
@@ -74,6 +74,18 @@ A generation error preserves the last confirmed topic, positions, assignments, a
 - Use clear, respectful language while challenging the human's reasoning.
 - Support text input and output first. Repository documentation remains English; the practice language can follow the human's language.
 
+## Arena
+
+Arena is the third web tab, alongside Practice and Source library. It evaluates models using the existing Practice agent's preparation, opening, and reply methods, including its source-attribution rules and bounded speaker context. It must not introduce a separate argument-generation prompt that makes the comparison unlike actual practice.
+
+The human selects a ready speaker, a topic, an affirmative model, a negative model, and a judge model. Model selections may use different server-configured providers; credentials remain on the server. The affirmative model prepares the shared motion and positions. The human reviews those positions before running the exchange. Both participants receive the same source context with their own assigned side.
+
+The initial exchange contains four contributions: an affirmative opening, a negative opening, an affirmative rebuttal, and a negative rebuttal. Completed contributions remain available if a later contribution fails. A retry resumes from the confirmed transcript; ending aborts work and suppresses late output. Provider and model selections are fixed for a session.
+
+After the exchange, the human can ask the selected judge to evaluate it. The judge receives the positions, source context, and completed transcript and returns validated scores from 0 to 100 for each side, together with a rationale. The UI visualizes those scores and clearly labels the evaluation provisional. The judge prompt contains a placeholder for the final criteria; invalid or failed judge output must not produce fabricated scores. A match's scores do not establish an overall ranking because models have different assigned sides and turn order.
+
+Arena sessions are held in memory and expire after one hour of inactivity. A server restart clears them. The interface can restore an existing session after a page reload while it is still held by the server.
+
 ## Technical requirements
 
 - Use Codex as the agent harness and the Codex SDK for programmatic interaction.
@@ -100,7 +112,7 @@ The standalone [technology document](tech-stack.md) describes the implementation
 ## Backlog
 
 - Structured competition sessions with defined rounds, speaking order, time limits, rebuttals, and closing statements.
-- Judging, scoring, and coaching feedback.
+- Final Arena judging criteria, repeatable evaluation across swapped sides, and coaching feedback.
 - Voice interaction.
 - Browsing archived debate sessions, subject to later product decisions.
 

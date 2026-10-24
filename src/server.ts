@@ -7,6 +7,9 @@ import { loadConfig } from "./config.js";
 import { CodexDebateAgent } from "./codex-agent.js";
 import { DebateService, type DebateAction } from "./debate-service.js";
 import { ModelCatalog } from "./models.js";
+import { ArenaCatalog } from "./arena-providers.js";
+import { CodexArenaJudge } from "./arena-judge.js";
+import { ArenaService, type ArenaAction } from "./arena-service.js";
 import { publicError } from "./errors.js";
 import { recordSchema, RecordError } from "./video-record.js";
 import { CodexVideoAnalyzer, VideoService, type CreateVideo } from "./video-service.js";
@@ -84,7 +87,9 @@ async function jsonBody(request: IncomingMessage, fields: string[], optional: st
 
 export function createVideoServer(service: VideoService, webDirectory = resolve("web"),
   debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model))),
-  models = new ModelCatalog()) {
+  models = new ModelCatalog(), arenaModels = new ArenaCatalog(),
+  arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model)),
+    model => CodexArenaJudge.create(arenaModels.config(model)))) {
   let processing = false;
   const server = createServer(async (request, response) => {
     response.setHeader("x-content-type-options", "nosniff");
@@ -97,6 +102,30 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
       const url = new URL(request.url ?? "/", `http://${host}`);
       if (request.headers.origin && request.headers.origin !== url.origin) throw new RecordError(403, "Cross-origin requests are not allowed.");
       if (request.method === "GET" && url.pathname === "/api/models") return json(response, 200, await models.list());
+      if (request.method === "GET" && url.pathname === "/api/arena/models") return json(response, 200, await arenaModels.list());
+      if (request.method === "POST" && url.pathname === "/api/arenas") {
+        const body = await jsonBody(request, ["speakerId", "affirmativeModel", "negativeModel", "judgeModel"]);
+        const [affirmative, negative, judge] = await Promise.all([
+          arenaModels.select(body.affirmativeModel!), arenaModels.select(body.negativeModel!), arenaModels.select(body.judgeModel!),
+        ]);
+        return json(response, 201, await arenas.create(body.speakerId!, { affirmative, negative, judge }));
+      }
+      const arenaRoute = /^\/api\/arenas\/([a-f0-9-]{36})(?:\/(prepare|run|judge|retry|end))?$/.exec(url.pathname);
+      if (arenaRoute) {
+        const id = arenaRoute[1]!;
+        if (request.method === "GET" && !arenaRoute[2]) return json(response, 200, arenas.get(id));
+        if (request.method === "POST" && arenaRoute[2]) {
+          const action = arenaRoute[2] as ArenaAction;
+          const body = await jsonBody(request, action === "prepare" ? ["topic"] : []);
+          try { return json(response, 200, await arenas.act(id, action, body.topic)); }
+          catch (error) {
+            let session;
+            try { session = arenas.get(id); } catch { /* The session may have expired. */ }
+            return json(response, error instanceof RecordError ? error.status : 502,
+              { error: error instanceof RecordError ? error.message : publicError(error), session });
+          }
+        }
+      }
       if (request.method === "POST" && url.pathname === "/api/debates") {
         const body = await jsonBody(request, ["speakerId"], ["model"]);
         const model = body.model === undefined ? undefined : await models.select(body.model);
@@ -168,6 +197,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
         "/app.js": ["app.js", "text/javascript; charset=utf-8"],
         "/style.css": ["style.css", "text/css; charset=utf-8"],
         "/debate.js": ["debate.js", "text/javascript; charset=utf-8"],
+        "/arena.js": ["arena.js", "text/javascript; charset=utf-8"],
       };
       const asset = Object.hasOwn(assets, url.pathname) ? assets[url.pathname] : undefined;
       if (request.method === "GET" && asset) {
@@ -184,7 +214,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
   });
   server.requestTimeout = 180_000;
   server.headersTimeout = 30_000;
-  server.once("close", () => { void debates.close().catch(() => {}); });
+  server.once("close", () => { void debates.close().catch(() => {}); void arenas.close().catch(() => {}); });
   return server;
 }
 

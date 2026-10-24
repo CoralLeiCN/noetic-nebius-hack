@@ -12,6 +12,7 @@ export class ModelCatalog {
   constructor(
     private readonly config: () => Omit<ProviderConfig, "model"> = loadProviderConfig,
     private readonly preferred: () => string | undefined = () => process.env.NEBIUS_MODEL,
+    private readonly includeAll = false,
   ) {}
 
   async list(): Promise<ModelList> {
@@ -46,7 +47,7 @@ export class ModelCatalog {
       if (!item || typeof item !== "object") continue;
       const id = (item as { id?: unknown }).id;
       if (typeof id !== "string" || id.length > 300 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(id)) continue;
-      const family = /^deepseek-ai\//i.test(id) ? "DeepSeek" : /^MiniMaxAI\//i.test(id) ? "MiniMax" : id === preferred ? "Configured" : null;
+      const family = /^deepseek-ai\//i.test(id) ? "DeepSeek" : /^MiniMaxAI\//i.test(id) ? "MiniMax" : id === preferred || this.includeAll ? "Configured" : null;
       if (!family) continue;
       models.set(id, { id, name: id.split("/").at(-1)!.replaceAll("-", " "), family });
     }
