@@ -56,7 +56,7 @@ function failedSession(kind: "reply" | "opening"): Snapshot {
   };
 }
 
-async function ui(initial: Snapshot, preferences = new Map<string, string>(), catalogFails = false) {
+async function ui(initial: Snapshot, preferences = new Map<string, string>(), catalogFails = false, personasFail = false) {
   let now = 0;
   let timerSequence = 0;
   const timers = new Map<number, { due: number; delay: number; callback: () => void }>();
@@ -103,7 +103,9 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
   const fetch = async (path: string, options?: { body: string }): Promise<Response> => {
     const body = options ? JSON.parse(options.body) as Record<string, string> : null;
     requests.push({ path, body });
-    if (path === "/api/personas") return Response.json([{ id: initial.speaker!.personaId, speakerName: initial.speaker!.name, sourceCount: 1 }, { id: "speaker-2", speakerName: "Morgan", sourceCount: 1 }]);
+    if (path === "/api/personas") return personasFail
+      ? Response.json({ error: "Saved persona does not match its manifest." }, { status: 500 })
+      : Response.json([{ id: initial.speaker!.personaId, speakerName: initial.speaker!.name, sourceCount: 1 }, { id: "speaker-2", speakerName: "Morgan", sourceCount: 1 }]);
     if (path === "/api/speech/voices") return catalogFails ? Response.json({ error: "Unavailable" }, { status: 503 }) : Response.json({
       provider: "elevenlabs", defaultVoiceId: "default-voice", voices: [{ id: "default-voice", name: "Default voice" }, { id: "6osMNatXqZrKCuGTB2bV", name: "The Rising Reformer" }],
       speakerDefaults: { "andy burnham": "6osMNatXqZrKCuGTB2bV" },
@@ -149,6 +151,7 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
   await flush();
   return {
     element, requests, screens, playback,
+    recoverPersonas() { personasFail = false; },
     get stoppedPlayback() { return stoppedPlayback; },
     replay() { const button = created.find(item => item.className === "replay-debate-reply"); assert.ok(button); button.emit("click"); },
     chooseSpeaker(id: string) { for (const listener of documentEvents.get("choose-debate-speaker") ?? []) void listener({ preventDefault() {}, detail: id }); },
@@ -179,6 +182,20 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
     },
   };
 }
+
+test("persona list failure replaces the loading state and Refresh recovers", async () => {
+  const app = await ui(failedSession("reply"), new Map(), false, true);
+  assert.match(app.element("speaker-options").children[0]!.textContent, /Could not load personas.*Refresh/);
+  assert.equal(app.element("speaker-empty").hidden, true);
+  assert.match(app.element("debate-error").textContent, /Saved persona does not match its manifest/);
+  assert.equal(app.element("refresh-speakers").disabled, false);
+  app.recoverPersonas();
+  app.element("refresh-speakers").emit("click");
+  await flush();
+  assert.equal(app.element("speaker-options").children.length, 2);
+  assert.equal(app.element("speaker-options").children[0]!.className, "speaker-card");
+  assert.equal(app.element("debate-error").hidden, true);
+});
 
 for (const kind of ["opening", "reply"] as const) test(`failed ${kind} keeps speech and draft available with explicit recovery`, async () => {
   const app = await ui(failedSession(kind));

@@ -1,0 +1,3 @@
+# Preserve exact bytes for artifacts whose manifests contain SHA-256 checksums.
+data/**/persona.md -text
+data/**/transcript.txt -text

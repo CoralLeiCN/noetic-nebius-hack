@@ -230,7 +230,14 @@ import { createDebateSpeech } from "./debate-speech.js";
       if (version !== speakerLoad) return;
       updateSpeakers(records);
       error();
-    } catch (failure) { error(`Could not load speaker personas. ${failure.message}`); }
+    } catch (failure) {
+      if (version !== speakerLoad) return;
+      if (!speakers.length) {
+        $("speaker-options").replaceChildren(node("p", "Could not load personas. Select Refresh to try again.", "hint"));
+        $("speaker-empty").hidden = true;
+      }
+      error(`Could not load speaker personas. ${failure.message}`);
+    }
     finally { $("refresh-speakers").disabled = false; }
   }
   function updateSpeakers(records) {

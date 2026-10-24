@@ -77,6 +77,8 @@ Never commit `.env` or put credentials in a topic. `.env`, build output, and dep
 
 ## Web debate practice
 
+If the speaker list fails to load, open `http://127.0.0.1:3000/api/personas` (adjust the port if configured) to see the server error. Loading the bundled saved persona requires neither provider credentials nor a Codex login. A `Saved persona does not match its manifest` error means the saved Markdown failed its integrity check. Older Windows checkouts can trigger this when Git converts LF line endings to CRLF; the same conversion can invalidate saved transcripts. `.gitattributes` preserves the exact bytes of both artifacts. Use a fresh clone containing that file, or back up local edits before restoring the affected bundled artifacts from Git with the new attributes in place. Restart the service and refresh the page. If the endpoint succeeds but the page stays on “Loading personas…”, check the browser Console and failed JavaScript requests.
+
 ```sh
 npm run start:web
 ```

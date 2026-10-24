@@ -67,7 +67,13 @@
   async function loadSpeakers() {
     $("arena-refresh-speakers").disabled = true;
     try { updateSpeakers(await request("/api/personas")); }
-    catch (failure) { error(`Could not load speaker personas. ${failure.message}`); }
+    catch (failure) {
+      if (!speakers.length) {
+        $("arena-speaker-options").replaceChildren(node("p", "Could not load personas. Select Refresh to try again.", "hint"));
+        $("arena-speaker-empty").hidden = true;
+      }
+      error(`Could not load speaker personas. ${failure.message}`);
+    }
     finally { $("arena-refresh-speakers").disabled = false; }
   }
   function renderModels() {
