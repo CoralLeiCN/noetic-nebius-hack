@@ -44,7 +44,7 @@ async function listening(service: VideoService, debates: DebateService, models?:
 
 test("web API runs a speaker debate through the actual SDK, including failed-turn recovery", { timeout: 60_000 }, async () => {
   const { root, service, record, persona } = await sources();
-  const modelIds = ["deepseek-ai/DeepSeek-V4.1-Flash", "MiniMaxAI/MiniMax-M3"];
+  const modelIds = ["deepseek-ai/DeepSeek-V4.1-Flash-1017", "MiniMaxAI/MiniMax-M3.1-Flash"];
   const fixture = await providerFixture((request, index) => JSON.stringify(request.body.input).includes("Create one debate motion") ? JSON.stringify(POSITIONS) :
     index === 2 ? { status: 503, body: "fixture-secret provider failure" } : `Argument ${index}`, modelIds);
   const provider = () => ({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret" });
