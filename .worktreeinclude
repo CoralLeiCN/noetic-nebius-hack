@@ -1,0 +1,2 @@
+# Copy the root .env into new local Codex-managed worktrees.
+/.env
