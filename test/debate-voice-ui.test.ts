@@ -56,7 +56,7 @@ function failedSession(kind: "reply" | "opening"): Snapshot {
   };
 }
 
-async function ui(initial: Snapshot) {
+async function ui(initial: Snapshot, preferences = new Map<string, string>(), catalogFails = false) {
   let now = 0;
   let timerSequence = 0;
   const timers = new Map<number, { due: number; delay: number; callback: () => void }>();
@@ -86,13 +86,15 @@ async function ui(initial: Snapshot) {
   const voiceState = { recording: false, capturing: false, transcribing: false, speaking: false, supported: true, needsPlaybackGesture: false, status: "", inputLevel: null as number | null, microphoneLabel: "", microphoneMuted: false, inputMonitoring: false, inputSignalDetected: false, captureElapsedSeconds: 0 };
   let callbacks!: { onState(state: typeof voiceState): void; onTranscript(text: string): void; onError(message: string): void };
   let canceled = 0;
+  let stoppedPlayback = 0;
+  const playback: { text: string; voiceId: string | undefined }[] = [];
   let recordingOptions: { deviceId?: string } | undefined;
   const voice = {
     get state() { return { ...voiceState }; },
     async startRecording(options?: { deviceId?: string }) { recordingOptions = options; Object.assign(voiceState, { recording: true, capturing: true }); callbacks.onState({ ...voiceState }); return true; },
     stopRecording() { Object.assign(voiceState, { recording: false, capturing: false, transcribing: true }); callbacks.onState({ ...voiceState }); },
     cancel() { canceled++; Object.assign(voiceState, { recording: false, capturing: false, transcribing: false, speaking: false }); callbacks.onState({ ...voiceState }); },
-    stopPlayback() {}, async resumePlayback() { return true; }, async play() { return true; },
+    stopPlayback() { stoppedPlayback++; }, async resumePlayback() { return true; }, async play(text: string, voiceId?: string) { playback.push({ text, voiceId }); return true; },
   };
   let snapshot = structuredClone(initial);
   const requests: { path: string; body: Record<string, string> | null }[] = [];
@@ -101,7 +103,11 @@ async function ui(initial: Snapshot) {
   const fetch = async (path: string, options?: { body: string }): Promise<Response> => {
     const body = options ? JSON.parse(options.body) as Record<string, string> : null;
     requests.push({ path, body });
-    if (path === "/api/personas") return Response.json([{ id: "speaker-1", speakerName: "Alex", sourceCount: 1 }]);
+    if (path === "/api/personas") return Response.json([{ id: initial.speaker!.personaId, speakerName: initial.speaker!.name, sourceCount: 1 }, { id: "speaker-2", speakerName: "Morgan", sourceCount: 1 }]);
+    if (path === "/api/speech/voices") return catalogFails ? Response.json({ error: "Unavailable" }, { status: 503 }) : Response.json({
+      provider: "elevenlabs", defaultVoiceId: "default-voice", voices: [{ id: "default-voice", name: "Default voice" }, { id: "6osMNatXqZrKCuGTB2bV", name: "The Rising Reformer" }],
+      speakerDefaults: { "andy burnham": "6osMNatXqZrKCuGTB2bV" },
+    });
     if (path === "/api/models") return Response.json({ models: [initial.model], defaultModel: initial.model!.id });
     if (path === `/api/debates/${initial.id}`) return sessionResponse ? sessionResponse() : Response.json(snapshot);
     if (path.endsWith("/retry")) {
@@ -134,6 +140,7 @@ async function ui(initial: Snapshot) {
     },
     window: { addEventListener: (name: string, listener: Listener) => windowEvents.set(name, [...windowEvents.get(name) ?? [], listener]) },
     navigator: { mediaDevices: { enumerateDevices: async () => [{ kind: "audioinput", deviceId: "usb-mic", label: "USB microphone" }] } },
+    localStorage: { getItem: (name: string) => preferences.get(name) ?? null, setItem: (name: string, value: string) => preferences.set(name, value) },
     sessionStorage: { getItem: (name: string) => storage.get(name) ?? null, setItem: (name: string, value: string) => storage.set(name, value), removeItem: (name: string) => storage.delete(name) },
     CustomEvent: class { constructor(readonly type: string, readonly options: { detail: unknown }) {} get detail() { return this.options.detail; } },
     createDebateSpeech: (options: typeof callbacks) => { callbacks = options; return voice; },
@@ -141,7 +148,10 @@ async function ui(initial: Snapshot) {
   }, { filename: "web/debate.js" });
   await flush();
   return {
-    element, requests, screens,
+    element, requests, screens, playback,
+    get stoppedPlayback() { return stoppedPlayback; },
+    replay() { const button = created.find(item => item.className === "replay-debate-reply"); assert.ok(button); button.emit("click"); },
+    chooseSpeaker(id: string) { for (const listener of documentEvents.get("choose-debate-speaker") ?? []) void listener({ preventDefault() {}, detail: id }); },
     get canceled() { return canceled; },
     get recordingOptions() { return recordingOptions; },
     inputState(state: Partial<typeof voiceState>) { Object.assign(voiceState, state); callbacks.onState({ ...voiceState }); },
@@ -348,4 +358,57 @@ test("microphone selection reaches capture and real input diagnostics stay visib
   app.element("cancel-debate-recording").emit("click");
   assert.equal(app.element("debate-input-monitor").hidden, true);
   assert.equal(app.element("debate-microphone").disabled, false);
+});
+
+
+test("Andy uses The Rising Reformer; explicit voice selection survives reload and applies to replay", async () => {
+  const initial = failedSession("reply");
+  initial.speaker = { ...initial.speaker!, name: "Andy Burnham" };
+  const preferences = new Map<string, string>();
+  const app = await ui(initial, preferences);
+  assert.equal(app.element("debate-voice").value, "6osMNatXqZrKCuGTB2bV");
+  assert.equal(app.element("debate-voice").disabled, false);
+  app.replay();
+  assert.equal(app.playback[0]!.voiceId, "6osMNatXqZrKCuGTB2bV");
+  const before = app.stoppedPlayback;
+  app.element("debate-voice").value = "default-voice";
+  app.element("debate-voice").emit("change");
+  assert.equal(app.stoppedPlayback, before + 1);
+  assert.equal(app.playback.length, 1, "changing voice must not synthesize audio");
+  app.replay();
+  assert.equal(app.playback[1]!.voiceId, "default-voice");
+  const reloaded = await ui(initial, preferences);
+  assert.equal(reloaded.element("debate-voice").value, "default-voice");
+  reloaded.element("read-debate-replies").checked = true;
+  reloaded.element("retry-debate-input").emit("click");
+  await flush();
+  assert.equal(reloaded.playback[0]!.voiceId, "default-voice", "autoplay uses the saved voice too");
+});
+
+test("voice choices belong to each speaker and current-session replay keeps its speaker", async () => {
+  const initial = failedSession("reply");
+  initial.speaker = { ...initial.speaker!, name: "Andy Burnham" };
+  const app = await ui(initial);
+  app.chooseSpeaker("speaker-2");
+  assert.equal(app.element("debate-voice").value, "6osMNatXqZrKCuGTB2bV", "an active debate keeps Andy's voice");
+  app.element("end-debate").emit("click");
+  await flush();
+  app.chooseSpeaker("speaker-2");
+  assert.equal(app.element("debate-voice").value, "default-voice");
+  app.element("debate-voice").value = "6osMNatXqZrKCuGTB2bV";
+  app.element("debate-voice").emit("change");
+  app.chooseSpeaker("speaker-1");
+  assert.equal(app.element("debate-voice").value, "6osMNatXqZrKCuGTB2bV");
+  app.element("debate-voice").value = "default-voice";
+  app.element("debate-voice").emit("change");
+  app.chooseSpeaker("speaker-2");
+  assert.equal(app.element("debate-voice").value, "6osMNatXqZrKCuGTB2bV");
+});
+
+test("voice catalog failures preserve playback with the service default", async () => {
+  const app = await ui(failedSession("reply"), new Map(), true);
+  assert.equal(app.element("debate-voice").disabled, true);
+  assert.match(app.element("debate-voice-hint").textContent, /could not be loaded/);
+  app.replay();
+  assert.equal(app.playback[0]!.voiceId, undefined);
 });

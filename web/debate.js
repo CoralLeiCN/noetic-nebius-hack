@@ -24,6 +24,11 @@ import { createDebateSpeech } from "./debate-speech.js";
   let generationTimer = null;
   let pageLeaving = false;
   let microphoneLoad = 0;
+  let voiceCatalog = null;
+  let loadingVoices = true;
+  let voiceCatalogError = false;
+  let renderedVoiceOptions = "";
+  const voicePreferences = new Map();
   let voice = null;
   let voiceState = { recording: false, capturing: false, transcribing: false, speaking: false, supported: false, status: "" };
 
@@ -57,7 +62,7 @@ import { createDebateSpeech } from "./debate-speech.js";
     if (readReply && fresh && activeScreen === "debate" && session.status === "active" && !session.pending &&
       !voiceState.capturing && !voiceState.transcribing && $("read-debate-replies").checked) {
       voiceError();
-      void voice.play(session.messages[index].text);
+      void voice.play(session.messages[index].text, selectedVoiceId());
     }
   }
 
@@ -87,6 +92,59 @@ import { createDebateSpeech } from "./debate-speech.js";
       });
       select.value = devices.some(device => device.deviceId === previous) ? previous : "";
     } catch { /* A default input still works when device enumeration is unavailable. */ }
+  }
+  function voiceSpeaker() {
+    return session?.speaker?.name || speakers.find(speaker => speaker.id === speakerId)?.speakerName || "";
+  }
+  function voicePreferenceKey() {
+    return `${voiceCatalog?.provider || ""}:${voiceSpeaker().trim().replace(/\s+/gu, " ").toLowerCase()}`;
+  }
+  function selectedVoiceId() {
+    if (!voiceCatalog) return undefined;
+    const key = voicePreferenceKey();
+    if (!voicePreferences.has(key)) {
+      let stored;
+      try { stored = localStorage.getItem(`debate-voice:${key}`); } catch { /* Browser storage is optional. */ }
+      voicePreferences.set(key, stored || "");
+    }
+    const name = voiceSpeaker().trim().replace(/\s+/gu, " ").toLowerCase();
+    const preferred = voicePreferences.get(key) || voiceCatalog.speakerDefaults?.[name] || voiceCatalog.defaultVoiceId;
+    return voiceCatalog.voices.some(item => item.id === preferred) ? preferred : voiceCatalog.defaultVoiceId;
+  }
+  function renderVoiceChoice() {
+    const select = $("debate-voice");
+    const options = voiceCatalog?.voices || [];
+    const signature = JSON.stringify([options, loadingVoices]);
+    if (signature !== renderedVoiceOptions) {
+      renderedVoiceOptions = signature;
+      select.replaceChildren();
+      for (const item of options) {
+        const option = node("option", item.name); option.value = item.id; select.append(option);
+      }
+      if (!options.length) {
+        const fallback = node("option", loadingVoices ? "Loading voices…" : "Service default"); fallback.value = ""; select.append(fallback);
+      }
+    }
+    select.value = selectedVoiceId() || "";
+    select.disabled = loadingVoices || !options.length || !voiceSpeaker();
+    $("refresh-voices").disabled = loadingVoices;
+    $("debate-voice-hint").textContent = voiceCatalogError
+      ? "Voice options could not be loaded. Playback uses the service default. Refresh voices to try again."
+      : voiceSpeaker() ? `Playback voice for ${voiceSpeaker()}. Saved in this browser; this is a synthetic voice.`
+        : "Choose a speaker to set their playback voice. Your choice is saved in this browser.";
+  }
+  async function loadVoices() {
+    loadingVoices = true;
+    renderVoiceChoice();
+    try {
+      const catalog = await request("/api/speech/voices");
+      if (!catalog || !["local", "elevenlabs"].includes(catalog.provider) || typeof catalog.defaultVoiceId !== "string" ||
+        !Array.isArray(catalog.voices) || !catalog.voices.length || catalog.voices.some(item => !item || typeof item.id !== "string" || typeof item.name !== "string") ||
+        !catalog.voices.some(item => item.id === catalog.defaultVoiceId)) throw new Error("Invalid voice catalog");
+      voiceCatalog = catalog;
+      voiceCatalogError = false;
+    } catch { voiceCatalog = null; voiceCatalogError = true; }
+    finally { loadingVoices = false; renderVoiceChoice(); }
   }
   function generationPhase() {
     if (ending) return "Ending the debate";
@@ -217,6 +275,7 @@ import { createDebateSpeech } from "./debate-speech.js";
     } finally { loadingModels = false; renderModels(); }
   }
   function renderState() {
+    renderVoiceChoice();
     const ended = session?.status === "ended";
     const pending = Boolean(session?.pending);
     const positions = session?.positions;
@@ -298,7 +357,7 @@ import { createDebateSpeech } from "./debate-speech.js";
           replay.type = "button";
           replay.disabled = waiting || recordingBusy;
           replay.setAttribute("aria-label", `Replay assistant response, turn ${index + 1}`);
-          replay.addEventListener("click", () => { voiceError(); void voice.play(message.text); });
+          replay.addEventListener("click", () => { voiceError(); void voice.play(message.text, selectedVoiceId()); });
           row.append(replay);
         }
         row.setAttribute("aria-label", `Turn ${index + 1}`);
@@ -395,6 +454,17 @@ import { createDebateSpeech } from "./debate-speech.js";
   $("retry-debate-input").addEventListener("click", () => { void act("retry"); });
   $("end-debate").addEventListener("click", () => { void act("end"); });
   $("new-debate").addEventListener("click", () => { ++operation; recordedDraft = null; voice.cancel(); voiceError(); session = null; lastAssistantKey = ""; uncertain = false; messageKey = ""; $("debate-argument").value = ""; remember(); error(); renderModels(); $("debate-topic").focus(); });
+  $("debate-voice").addEventListener("change", () => {
+    const choice = $("debate-voice").value;
+    if (!voiceCatalog?.voices.some(item => item.id === choice)) return;
+    voice.stopPlayback();
+    const key = voicePreferenceKey();
+    voicePreferences.set(key, choice);
+    try { localStorage.setItem(`debate-voice:${key}`, choice); } catch { /* Browser storage is optional. */ }
+    voiceError();
+    renderVoiceChoice();
+  });
+  $("refresh-voices").addEventListener("click", () => { voice.stopPlayback(); void loadVoices(); });
   $("refresh-models").addEventListener("click", () => { void loadModels(); });
   $("debate-model").addEventListener("change", () => {
     modelChoice = $("debate-model").value;
@@ -435,7 +505,7 @@ import { createDebateSpeech } from "./debate-speech.js";
       } catch { session = null; remember(); error("Your previous debate is no longer available. Start a new one."); }
       finally { busy = false; generationAction = ""; }
     }
-    await Promise.all([loadSpeakers(), loadModels()]);
+    await Promise.all([loadSpeakers(), loadModels(), loadVoices()]);
     // A page reload may happen while the server is finishing a generation.
     if (session?.status.startsWith("generating_")) {
       const version = operation;

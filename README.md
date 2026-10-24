@@ -172,7 +172,11 @@ The backend uses the Codex SDK with the same provider configuration as the debat
 
 After reviewing the source, build or update the speaker persona. Sources with the same normalized speaker name are analyzed together. The generated persona is saved under `data/persona-<uuid>/` as `persona.md` with `persona.json` metadata. Existing sources remain available for review; they do not become practice opponents until a persona is compiled. The persona can be inspected and downloaded from the library.
 
-On Apple Silicon, [local speech](doc/local-speech.md) uses SGLang-Omni's native MLX servers for transcription and speech generation. In **Transcript → Paste text**, expand **Transcribe an audio file locally**, choose a clip and review the resulting transcript before generating a record. To hear an excerpt, select up to 600 characters in a saved record and choose **Read selected text aloud**. Run `npm run speech:setup` once and `npm run speech:start` in a separate terminal before using these controls. Speech processing does not require provider credentials. Record analysis still uses the configured provider.
+On Apple Silicon, [speech](doc/local-speech.md) uses SGLang-Omni's native MLX server for transcription and supports local Voxtral or ElevenLabs voices. In **Transcript → Paste text**, expand **Transcribe an audio file locally**, choose a clip and review the resulting transcript before generating a record. To hear an excerpt, select up to 600 characters in a saved record and choose **Read selected text aloud**. Run `npm run speech:setup` once and `npm run speech:start` in a separate terminal before using these controls. Record analysis still uses its independently configured provider.
+
+Choose the voice backend in `.env`: `TTS_PROVIDER=local` is the default and requires no speech API key. To use ElevenLabs, set `TTS_PROVIDER=elevenlabs` and `ELEVENLABS_API_KEY`. Optional overrides are `ELEVENLABS_VOICE_ID` (default `JBFqnCBsd6RMkjVDRZzb` when blank or unset) and `ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`). Restart the speech service after changes. ElevenLabs mode sends synthesis text to ElevenLabs, keeps transcription local and does not launch the local TTS worker. See [voice provider setup](doc/local-speech.md#switch-voice-providers).
+
+Use the **Voice** selector in Debate practice to choose the spoken voice. In ElevenLabs mode, Andy Burnham defaults to **The Rising Reformer** (`6osMNatXqZrKCuGTB2bV`), a fictional politician-style voice rather than a clone of Andy. You can switch to the configured default voice; the browser remembers your choice for each speaker name, including after a persona rebuild. Local mode offers the configured local voice.
 
 Speech runs as an independent microservice at `http://127.0.0.1:8764`, with a `/health` readiness check. The app proxies its existing speech routes to that service. Other browser frontends can call it directly using an explicit `SPEECH_ALLOWED_ORIGINS` allowlist; see the [frontend API examples](doc/local-speech.md#api-and-validation). `npm run speech:serve` starts the API alone when model workers already run separately.
 
@@ -184,7 +188,7 @@ Each record is checked against the [strict versioned JSON Schema](schema/video-r
 - [Behavior specification](doc/spec.md)
 - [Technology stack](doc/tech-stack.md)
 - [Video-record service and API](doc/video-record-service.md)
-- [Local speech on Apple Silicon](doc/local-speech.md)
+- [Speech with local or ElevenLabs voices](doc/local-speech.md)
 - [Judger documentation](doc/judger/README.md)
 
 Complete competition formats, final judging criteria, continuous full-duplex conversation, and browsing archived debates remain in the backlog.

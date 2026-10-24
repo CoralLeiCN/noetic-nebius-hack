@@ -311,7 +311,7 @@ export function createDebateSpeech(options = {}) {
     catch { cancelCapture(); failure("Could not finish the recording. Try again or type your argument."); }
   }
 
-  async function play(text) {
+  async function play(text, voiceId) {
     if (state.capturing || state.transcribing) { failure("Finish or cancel your recording before playing a response."); return false; }
     stopPlayback();
     captureStatus = "";
@@ -327,7 +327,7 @@ export function createDebateSpeech(options = {}) {
     try {
       for (const chunk of chunks) {
         playbackTimer = setTimer(() => controller.abort(new Error("Speech generation timed out. Use Replay to try again.")), SPEECH_TIMEOUT_MS);
-        const response = await environment.fetch("/api/speech/audio", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: chunk }), signal: controller.signal });
+        const response = await environment.fetch("/api/speech/audio", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: chunk, ...(voiceId ? { voiceId } : {}) }), signal: controller.signal });
         if (!response.ok) throw new Error(await serviceFailure(response, "Could not generate the spoken response."));
         const blob = await response.blob();
         if (version !== playbackVersion) return false;

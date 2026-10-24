@@ -1,10 +1,10 @@
-# Local speech on Apple Silicon
+# Speech with local or ElevenLabs voices
 
-Transcription and speech synthesis run as an independent local microservice backed by SGLang-Omni's native C++ MLX servers. This is the separate `sglang_omni_mlx/native` path, not the CUDA wheel or the PyTorch/MPS installer. The existing debate and record-analysis model remains independently configured.
+Transcription and speech synthesis run through an independent local microservice. Transcription uses SGLang-Omni's native C++ MLX server on Apple Silicon. Set `TTS_PROVIDER` to choose local Voxtral speech synthesis or ElevenLabs voices. The native runtime uses the separate `sglang_omni_mlx/native` path, not the CUDA wheel or the PyTorch/MPS installer. The existing debate and record-analysis model remains independently configured.
 
 ```text
 Frontend → app's same-origin speech proxy → speech API :8764 → ASR worker :8765
-                                                           → TTS worker :8766
+                                                           → local TTS :8766 or ElevenLabs HTTPS API
 Other allowed browser frontend ───────────→ speech API :8764
 CLI ─────────────────────────────────────→ speech API :8764
 ```
@@ -27,20 +27,46 @@ Voxtral's model card marks its weights **CC BY-NC 4.0 (noncommercial)**. Nemotro
 
 ## Setup and use
 
-Requirements: an Apple Silicon Mac, Xcode, `uv`, `git`, `ffmpeg` and Python 3.9 or newer for the launcher. The upstream build creates a separate Python 3.12 environment for its build tools. Its default macOS deployment target is 15.0. Setup downloads several gigabytes of weights; the comparison model is optional.
+Requirements: an Apple Silicon Mac, Xcode, `uv`, `git`, `ffmpeg`, Node.js 24 or newer and Python 3.9 or newer for the launcher. The upstream build creates a separate Python 3.12 environment for its build tools. Its default macOS deployment target is 15.0. Setup downloads several gigabytes of weights; the comparison model is optional. In ElevenLabs mode, setup skips local Voxtral weights; local transcription still requires the native runtime and ASR weights.
 
 ```sh
 npm run speech:setup
 npm run speech:start
 ```
 
-Keep `speech:start` running in a separate terminal. It starts the speech API on `127.0.0.1:8764`, ASR on `127.0.0.1:8765` and TTS on `127.0.0.1:8766`. It stops all three child processes on exit or a child failure. The launcher selects matching checkpoint IDs for the API and workers, including when `--asr qwen` is supplied. Models remain loaded between requests. No cloud inference, fallback or API key is used for speech.
+Keep `speech:start` running in a separate terminal. It starts the speech API on `127.0.0.1:8764`, ASR on `127.0.0.1:8765` and, in local mode, TTS on `127.0.0.1:8766`. ElevenLabs mode starts only ASR and the API. The launcher stops all child processes on exit or a child failure. It selects matching checkpoint IDs for the API and workers, including when `--asr qwen` is supplied. Local models remain loaded between requests. Local mode uses no cloud inference or speech API key.
 
-`GET http://127.0.0.1:8764/health` returns HTTP 200 and `ready: true` only when both workers advertise the configured model IDs. Otherwise it returns HTTP 503, `ready: false` and per-model readiness. If the MLX workers are already running, start just the API with `npm run speech:serve`.
+`GET http://127.0.0.1:8764/health` checks that each configured local worker advertises its expected model ID. In ElevenLabs mode, the TTS entry reports configuration readiness only: it does not contact ElevenLabs, generate billable audio, or verify credentials, voice access or account quota. An unavailable local worker yields HTTP 503 and `ready: false`. If the required MLX workers are already running, start just the API with `npm run speech:serve`.
+
+### Switch voice providers
+
+Set these values in the repository's `.env` to use ElevenLabs:
+
+```dotenv
+TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=your-api-key
+# Optional overrides; these are the defaults.
+ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
+```
+
+`ELEVENLABS_API_KEY` is required for ElevenLabs mode. `ELEVENLABS_VOICE_ID` is optional and defaults to `JBFqnCBsd6RMkjVDRZzb` when blank or unset. To use a different voice, set a voice ID accessible to your ElevenLabs account. `ELEVENLABS_MODEL_ID` is optional and defaults to `eleven_multilingual_v2`. These values are server configuration; the browser never receives the key. Speech synthesis sends the selected text to ElevenLabs and uses your account's quota. Microphone and audio-file transcription continue to run locally.
+
+Stop and restart `npm run speech:start` after changing the settings. Shell environment variables take precedence over `.env`, and the launcher uses Node's environment-file parsing rules. If using `speech:serve` directly, restart that process instead. The web app and CLI keep the same speech URL and WAV response format. The API requests 24 kHz PCM from ElevenLabs and wraps it as a mono WAV for existing playback and file output.
+
+To switch back, set `TTS_PROVIDER=local` (the default when unset), run `npm run speech:setup` if Voxtral weights have not been downloaded, and restart the service. `LOCAL_TTS_VOICE` selects the local voice and defaults to `neutral_female`. The service does not fall back to another provider when synthesis fails. See the [ElevenLabs text-to-speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) for voice and model selection.
 
 Start the web app with `npm run start:web`. In the pasted-transcript panel, choose **Transcribe an audio file locally** and review the draft. This does not save a record or invoke record analysis. Only the reviewed text is submitted when you generate a record; record provenance continues to describe a user-supplied, unverified transcript. Audio uploaded to this transcription route is not saved. Recognition does not identify a named speaker or independently verify the transcript.
 
 Select an excerpt in a saved record and choose **Read selected text aloud**. The source-library player waits for a complete WAV.
+
+### Choose a voice for a debate speaker
+
+The **Voice** selector in Debate practice offers the configured default voice and, in ElevenLabs mode, **The Rising Reformer** (`6osMNatXqZrKCuGTB2bV`). Andy Burnham defaults to The Rising Reformer, a fictional politician-style voice listed on [ElevenLabs' politician voice page](https://elevenlabs.io/voice-library/politician), not a clone of Andy's voice. Other speakers start with the environment-configured default.
+
+Your selection is saved in this browser by normalized speaker name, so it survives a reload or rebuilding that speaker's persona. Changing the voice stops current playback; later replies and replay use the new choice. Each passage of one reply uses the same selected voice. Local mode offers only `LOCAL_TTS_VOICE`. Source-library playback and CLI requests without a voice selection continue to use the environment-configured default. ElevenLabs voice access and quota still depend on your account.
+
+`GET /api/speech/voices` returns the active provider, available voice IDs and names, default voice ID and speaker defaults without credentials. It is available on both the app and speech API. `POST /api/speech/audio` accepts `{ "input": "Text to speak", "voiceId": "6osMNatXqZrKCuGTB2bV" }`; `voiceId` is optional and must be one of the catalog's IDs. Unknown IDs are rejected before provider synthesis.
 
 The debate frontend also uses this service for microphone arguments and spoken assistant replies. **Speak argument** obtains microphone access only when clicked. **Stop recording** submits the complete browser recording to the same-origin transcription proxy; the transcript is appended to the existing draft for review and is not sent as a debate argument until **Send argument** is chosen. Recording stops at 115 seconds or the 16 MiB size limit. Tracks are released after recording, cancellation or errors, including a microphone permission prompt that resolves after cancellation. Browser-supported WebM/Opus is preferred, with MP4 and browser-default fallbacks; FFmpeg handles conversion.
 
@@ -72,7 +98,7 @@ The combined launcher configures the API for Qwen automatically; the frontend an
 
 ## M4 Pro limits and measurements
 
-The speech microservice admits one operation at a time across transcription and synthesis to limit contention across app, CLI and browser clients. Audio is capped at 16 MiB and 120 seconds, converted with local FFmpeg to 16 kHz mono PCM. Overlong clips are rejected instead of silently cut. FFmpeg cannot access network or local-file protocols through the supplied input. Speech text is capped at 600 characters, generation at 750 audio frames (about 60 seconds), and inference requests at 120 seconds. Incomplete WAV generation is rejected. Cancellation propagates through the app proxy to the service and native worker, and terminates active FFmpeg decoding. Direct requests to the native worker ports bypass the microservice's shared admission limit.
+The speech microservice admits one operation at a time across transcription and synthesis to limit contention across app, CLI and browser clients. Audio is capped at 16 MiB and 120 seconds, converted with local FFmpeg to 16 kHz mono PCM. Overlong clips are rejected instead of silently cut. FFmpeg cannot access network or local-file protocols through the supplied input. Speech text is capped at 600 characters and inference requests at 120 seconds. Local generation is capped at 750 audio frames (about 60 seconds), and incomplete local WAV generation is rejected. Cancellation propagates through the app proxy to the service and the selected backend, and terminates active FFmpeg decoding. Direct requests to the native worker ports bypass the microservice's shared admission limit.
 
 Measure with a representative recording before changing the model or limits:
 
@@ -81,7 +107,7 @@ npm run speech:benchmark -- --audio /path/to/representative-recording.wav
 npm run speech:benchmark -- --asr qwen --audio /path/to/representative-recording.wav
 ```
 
-The benchmark uses at most the first 120 seconds of the recording. It measures ASR three times in one process, separating first inference from warm repeats. TTS reports time to first generated audio, total generation time, generated audio duration and real-time factor (generation seconds / audio seconds; lower is faster). Each model runs separately under `/usr/bin/time -l`; the saved report includes peak resident memory, process notes, chip, memory capacity and source revision. It writes `.speech/benchmark-<asr>.json` and `.speech/benchmark-speech.wav`. It does not measure simultaneous workloads, browser playback latency or word error rate.
+The benchmark always measures local ASR and Voxtral, regardless of `TTS_PROVIDER`, and requires both model downloads. It uses at most the first 120 seconds of the recording. It measures ASR three times in one process, separating first inference from warm repeats. TTS reports time to first generated audio, total generation time, generated audio duration and real-time factor (generation seconds / audio seconds; lower is faster). Each model runs separately under `/usr/bin/time -l`; the saved report includes peak resident memory, process notes, chip, memory capacity and source revision. It writes `.speech/benchmark-<asr>.json` and `.speech/benchmark-speech.wav`. It does not measure simultaneous workloads, browser playback latency or word error rate.
 
 Measured on this **M4 Pro with 48 GiB unified memory**, using the pinned repository's 4.62-second English question and a separate seeded English TTS passage:
 

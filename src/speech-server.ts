@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { LocalSpeech, MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS, MAX_SPEECH_CHARACTERS } from "./speech.js";
+import { Speech, MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS, MAX_SPEECH_CHARACTERS } from "./speech.js";
 import { handleSpeechRequest, speechJson } from "./speech-http.js";
 import { RecordError } from "./video-record.js";
 
@@ -14,7 +14,7 @@ export function speechAllowedOrigins(raw = process.env.SPEECH_ALLOWED_ORIGINS ??
   }));
 }
 
-export function createSpeechServer(speech = new LocalSpeech(), allowedOrigins = speechAllowedOrigins()) {
+export function createSpeechServer(speech = new Speech(), allowedOrigins = speechAllowedOrigins()) {
   const server = createServer(async (request, response) => {
     response.setHeader("x-content-type-options", "nosniff");
     response.setHeader("cache-control", "no-store");
@@ -27,18 +27,24 @@ export function createSpeechServer(speech = new LocalSpeech(), allowedOrigins = 
       if (origin && origin !== url.origin && !allowedOrigins.has(origin)) throw new RecordError(403, "This frontend origin is not allowed.");
       if (origin) response.setHeader("access-control-allow-origin", origin);
       const speechRoute = ["/api/speech/transcriptions", "/api/speech/audio"].includes(url.pathname);
-      if (request.method === "OPTIONS" && (speechRoute || url.pathname === "/health")) {
+      if (request.method === "OPTIONS" && (speechRoute || url.pathname === "/health" || url.pathname === "/api/speech/voices")) {
         const method = request.headers["access-control-request-method"];
         const headers = (request.headers["access-control-request-headers"] ?? "").toLowerCase().split(",").map(value => value.trim()).filter(Boolean);
         if (method !== (speechRoute ? "POST" : "GET") || headers.some(header => header !== "content-type")) throw new RecordError(403, "Unsupported speech preflight request.");
         response.writeHead(204, { "access-control-allow-methods": speechRoute ? "POST" : "GET", "access-control-allow-headers": "Content-Type", "access-control-max-age": "600" }).end();
         return;
       }
+      if (request.method === "GET" && url.pathname === "/api/speech/voices") return speechJson(response, 200, await speech.voices());
       if (request.method === "GET" && url.pathname === "/health") {
         const models = await Promise.all(([
           ["asr", speech.config.asrUrl, speech.config.asrModel],
           ["tts", speech.config.ttsUrl, speech.config.ttsModel],
         ] as const).map(async ([task, origin, model]) => {
+          if (task === "tts" && speech.config.ttsProvider === "elevenlabs") {
+            // Configuration readiness only: health checks never synthesize billable speech.
+            const configured = Boolean(speech.config.elevenLabs?.apiKey && speech.config.elevenLabs?.voiceId);
+            return { task, provider: "elevenlabs", model: speech.config.elevenLabs?.modelId, ready: configured, configured, verified: false };
+          }
           let ready = false;
           try {
             const response = await fetch(`${origin}/v1/models`, { redirect: "error", signal: AbortSignal.timeout(1500) });
