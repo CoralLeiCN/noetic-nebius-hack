@@ -2,6 +2,16 @@
 
 Use this prompt to generate original debate content in a direct, practical parliamentary speaking style. It uses broad rhetorical traits rather than imitating a particular real person.
 
+## Runtime integration
+
+The backend reads the text block below as the canonical speaking-style prompt when creating a practice agent. `src/speaking-style.ts` loads it for `CodexDebateAgent`, which supplies it to each new practice thread, including threads rebuilt after a failed turn. Web Practice, the CLI and Arena participants share this path. Restart the server and start a new session after editing the prompt; an existing agent retains its loaded version.
+
+Opening speeches have a maximum budget of 250 words; rebuttals and POI answers have a maximum of 180 words. These are model instructions, not enforced output truncation. The backend supplies the assigned side and speech name, topic and positions as preparation notes, and the confirmed conversation as the transcript. No raw source excerpts are supplied, so `{SOURCE_EXCERPTS}` is replaced with an explicit absence notice. Generated claims and transcript contributions are not verified evidence.
+
+This style and its guardrails take priority over conflicting saved persona guidance. Compatible persona details still inform the delivery. The model follows the human's language, translating parliamentary addresses and language markers when needed. Motion preparation, source extraction, persona compilation and judging use their own tasks without this speaking-style text block.
+
+## Prompt
+
 ```text
 # Persona: Direct parliamentary debater
 

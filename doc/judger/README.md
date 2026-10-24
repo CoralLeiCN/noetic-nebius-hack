@@ -8,6 +8,8 @@ The final judging criteria are not ready. The current judge prompt uses clarity 
 
 When final criteria are agreed, replace the placeholder in the judge prompt and update this document together with the validation tests. Keep the argument-generation path shared with Practice so the evaluation continues to reflect real usage.
 
+Participant openings and rebuttals use the canonical [parliamentary speaking-style prompt](parliamentary-speaking-style-prompt.md) through the shared backend practice adapter. The judge uses its own instructions and does not receive this speaking-style text block.
+
 ## Input and output
 
 The judge receives the topic, shared motion and positions, bounded speaker source context, and confirmed transcript. Model identities are omitted from the judge input to reduce provider preference. Participant arguments and source material are data, not instructions to change the judging task. The judge must assess the supplied exchange without inventing evidence or treating simulated arguments as the real speaker's statements.

@@ -91,6 +91,9 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     assert.doesNotMatch(retryInput, /Education should help everyone learn|remarkIndexes/);
     assert.match(retryInput, /simulated debate opponent/);
     assert.match(retryInput, /assistantSide.*negative/);
+    assert.match(retryInput, /# Persona: Direct parliamentary debater/);
+    assert.match(retryInput, /Speech name: negative rebuttal \/ POI answer/);
+    assert.doesNotMatch(retryInput, /\{SOURCE_EXCERPTS\}/);
     assert.equal(retryInput.match(/AI helps everyone learn/g)?.length, 1);
     const ended = await (await web.post(route + "/end")).json() as Snapshot;
     assert.equal(ended.status, "ended");
