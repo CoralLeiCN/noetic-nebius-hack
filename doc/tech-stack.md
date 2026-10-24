@@ -1,0 +1,139 @@
+# Debate Assistant Technology Stack
+
+Status: Initial CLI implemented. This document is self-contained and records technology decisions independently of the product specification. The Codex SDK and runtime are pinned to `0.164.0`; live Nebius compatibility still requires the configured provider check.
+
+## System overview
+
+A local text application helps a human debate an assistant. The application owns the topic, opposing positions, side selection, and transcript. Codex owns model execution and conversation threads. Nebius supplies model inference through a configurable endpoint.
+
+```text
+Human
+  -> Text interface
+  -> Debate session service
+  -> Codex SDK
+  -> Codex runtime / agent harness
+  -> Configured Nebius or compatible model endpoint
+```
+
+## Stack and decision status
+
+| Layer | Technology | Status and reason |
+| --- | --- | --- |
+| Agent harness | Codex runtime | Required by the user; runs the assistant's model interactions. |
+| Harness integration | Official `@openai/codex-sdk` package, version `0.164.0` | Implemented with the matching pinned Codex runtime. |
+| Initial model provider | Nebius | Required by the user; replaces the earlier Mapis reference. |
+| Model transport | OpenAI Responses-compatible API | Required by the current Codex provider configuration. |
+| Endpoint configuration | Environment variables mapped to Codex provider overrides | Required; endpoint changes must not require a code change. |
+| Application language | TypeScript `7.0.2` | Implemented; shares types with the SDK. |
+| Runtime | Node.js 24 or later | `.nvmrc` selects the Node.js 24 LTS family; `@types/node` is pinned to `24.19.2`. |
+| Package manager | npm with a committed lockfile | Implemented; pins the SDK and its compatible Codex runtime together. |
+| First interface | Local command-line text interface using Node.js built-ins | Implemented; no frontend framework. |
+| Application structure | A small session service plus a Codex adapter | Implemented; keeps debate rules separate from SDK and provider details. |
+| Runtime validation | Explicit validation of configuration and generated data | Implemented without a validation dependency. |
+| Session state | In-memory application state and Codex thread identifiers | Implemented without an application database. Codex writes temporary local thread data. |
+| Tests | Node.js test runner and a configurable local provider fixture | Implemented; exercises domain behavior, actual SDK routing, and the CLI. |
+| Deployment | Local Node.js process with outbound access to the configured provider | Implemented; hosted deployment is outside the initial scope. |
+| Logging | Sanitized application diagnostics | Implemented; no separate monitoring service. |
+
+No frontend framework, HTTP server framework, database, vector store, additional agent framework, or hosting service is selected for the first version.
+
+The official [Codex SDK documentation](https://learn.chatgpt.com/docs/codex-sdk) describes server-side TypeScript integration, thread creation and continuation, and configuration overrides. The final package and runtime versions must be recorded in the implementation lockfile and setup documentation.
+
+## Codex integration
+
+The application must call the Codex SDK rather than making direct model requests as its debate execution path. Codex remains the harness when the provider changes.
+
+The adapter:
+
+1. Validate environment configuration before starting a model operation.
+2. Create a Codex instance with explicit custom provider configuration using SDK configuration overrides.
+3. Use a preparation thread to generate the motion and opposing positions.
+4. Start a separate practice thread once sides are selected, supplying the accepted motion, both positions, and the assistant's assigned side.
+5. Continue the same practice thread for follow-up turns using the SDK's thread API.
+6. Return completed assistant text and normalized failures to the session service.
+
+The application owns session state and completed messages. Codex thread state supplies conversational context; it does not decide side assignments or application transitions. Provider configuration is fixed for a session, so switching endpoint or model starts a new session.
+
+Use dedicated debate instructions instead of Codex's default coding instructions. Run in a dedicated application working directory, with shell execution, file changes, web search, external integrations, and subagents disabled or denied. The debate workflow requires only model conversation. Verify these restrictions against the pinned runtime; prompt instructions alone are insufficient to restrict tools.
+
+Use process-scoped SDK overrides and isolated application runtime state. Do not edit the developer's personal Codex configuration or inherit unrelated personal integrations. The SDK supports configuration overrides without changing configuration files. [Codex SDK configuration](https://learn.chatgpt.com/docs/codex-sdk#configuration-overrides)
+
+## Environment configuration
+
+These are application-level settings. The configuration loader must resolve them into actual Codex configuration values; Codex TOML does not perform the substitution shown in the illustrative example below.
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `NEBIUS_BASE_URL` | Yes | Complete API base URL, including any version or deployment prefix; omit the final `/responses` operation path. Accept a compatible custom endpoint here. |
+| `NEBIUS_API_KEY` | Yes | Provider bearer token, supplied only through the process environment or an untracked local environment file. |
+| `NEBIUS_MODEL` | Yes | Exact model identifier accepted by the configured endpoint; no hardcoded model default. |
+
+The repository's `.env.example` provides this template:
+
+```dotenv
+NEBIUS_BASE_URL=https://api.tokenfactory.nebius.com/v1
+NEBIUS_API_KEY=
+NEBIUS_MODEL=
+```
+
+The URL is an example, not a built-in fallback. Require an explicit value so regional, dedicated, proxy, or other compatible endpoints work without code changes. Preserve the configured path prefix, normalize a trailing slash, and reject URLs containing embedded credentials. Use HTTPS for remote endpoints; allow HTTP loopback URLs for local compatibility tests.
+
+The selected model must be verified with the configured endpoint. Neither a model's name nor its availability on another provider establishes compatibility.
+
+### Mapping to Codex
+
+The application supplies the equivalent of the following provider configuration through SDK overrides after resolving environment variables:
+
+```toml
+model = "<resolved NEBIUS_MODEL>"
+model_provider = "nebius"
+
+[model_providers.nebius]
+name = "Configured debate model endpoint"
+base_url = "<resolved NEBIUS_BASE_URL>"
+env_key = "NEBIUS_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+```
+
+Pass the API key to the Codex runtime environment. Never put its literal value in a command-line argument, configuration example, or model prompt. The provider ID `nebius` is an application configuration label; the base URL determines the request destination.
+
+Codex documents custom providers with `base_url`, `env_key`, optional headers, and `wire_api`. Its current reference specifies `responses` as the only supported wire protocol. Use SDK overrides for this configuration: project-local `.codex/config.toml` files cannot set provider/authentication overrides in the current documented configuration model. [Custom providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers), [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+
+If an endpoint needs additional headers or query parameters, expose explicit configuration for the documented Codex provider fields during implementation. Resolve secret header values from environment variables; do not store them in the repository.
+
+## Nebius compatibility and custom endpoint support
+
+Nebius's published [inference API index](https://api.tokenfactory.nebius.com/docs) advertises `POST /v1/responses`. This establishes an advertised route, not verified compatibility with Codex, a particular model, or the user's endpoint.
+
+Before marking the integration supported, run an explicit compatibility check through the pinned Codex SDK and runtime using the configured environment:
+
+1. Confirm bearer authentication and the exact configured model work.
+2. Confirm the runtime's Responses requests, streamed events, and completion handling work. A successful Chat Completions request is insufficient.
+3. Generate valid positions and an opening, then complete at least two follow-up turns with context preserved.
+4. Verify developer instructions, supported request fields, and any schema constraints used for position generation. If schema-constrained generation is unavailable, validate parsed output and perform at most one repair attempt.
+5. Verify that disabling optional model capabilities avoids sending unsupported reasoning, search, or tool parameters.
+6. Verify all inference traffic goes to the configured endpoint and that no provider fallback occurs.
+
+Changing `NEBIUS_BASE_URL`, `NEBIUS_API_KEY`, and `NEBIUS_MODEL` must be sufficient to use another endpoint that passes these checks. Credentials and protocol compatibility can vary between endpoints.
+
+If the endpoint only supports Chat Completions or rejects the Codex request shape, report the incompatibility clearly. A Responses-compatible gateway would then be a separate integration decision; no translation gateway or alternate harness is selected in this stack.
+
+## Data, failures, and verification
+
+The session service stores a session ID, topic, motion, affirmative and negative positions, human and assistant sides, status, and completed transcript messages. The adapter holds preparation/practice thread IDs. Credentials are never session data. Durable application history and cross-process resume are deferred. Codex's history and diagnostics live in a private temporary runtime directory that is removed on normal shutdown; an abrupt kill may leave that temporary directory behind.
+
+Validate generated positions before side selection. Each position must be nonempty, use the expected side identifier, and address the same motion. Validate shape in code and review semantic opposition with representative examples.
+
+Own retry policy in one layer: keep provider transport retries bounded and avoid wrapping an already retried SDK operation in unbounded application retries. Do not replay a failed human turn blindly into a possibly advanced thread. Reconcile its status or rebuild a fresh thread from confirmed session context and completed messages before retrying. Log only sanitized failure details.
+
+Verification must cover side assignment, state transitions, session isolation, invalid output, failed turns, and endpoint routing. A local fixture should assert the requested host/path/model and exercise authentication and protocol failures through the actual SDK adapter. Live Nebius checks are explicit integration tests using environment credentials, rather than ordinary offline test requirements.
+
+## Decisions still open
+
+- The exact Nebius endpoint and model, to be supplied through environment variables and verified together.
+- Whether a later deployment needs an exact Node.js patch version beyond the selected LTS family. SDK, runtime, and build dependencies are pinned in the lockfile.
+- Whether to add a browser interface, using the existing session service and harness adapter.
+- Whether later versions need durable application storage, authentication, hosting, or additional provider-specific headers.
+
+The main technical uncertainty is actual Codex compatibility with the selected Nebius endpoint and model. Run that integration check before building a richer interface.

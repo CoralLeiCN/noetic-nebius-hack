@@ -1,0 +1,24 @@
+{
+  "name": "debate-practice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Practice debating an opposing assistant powered by Codex and a configurable model endpoint.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "npm run build --silent && node --env-file-if-exists=.env dist/src/cli.js",
+    "test": "npm run build --silent && node --test dist/test/*.test.js",
+    "check:provider": "npm run build --silent && node --env-file-if-exists=.env dist/src/check-provider.js"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "0.164.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}
