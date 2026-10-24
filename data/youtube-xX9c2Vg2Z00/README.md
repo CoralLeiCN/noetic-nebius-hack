@@ -11,6 +11,7 @@
 | [Full transcript](transcript.txt) | Complete captions pasted by the user, including all speakers, preserved exactly as supplied. |
 | [Andy Burnham's remarks](speaker-remarks.md) | Six responses extracted from the supplied captions, with original timestamps and caption wording. |
 | [Summarized remarks](summary.md) | Timestamped summary of Andy's responses, with links to the relevant moments in the source video. |
+| [Judger style assessment](judger-score.md) | Evidence-based classification of Burnham's debate style using the supplied style dimensions. |
 | [Structured record](record.json) | Version 1.0 record with source references, original transcript cues, 55 speaker quote spans and six summaries linked to their supporting remarks. |
 
 The full transcript and speaker extraction come from user-supplied YouTube captions. The summary was initially prepared from the transcript displayed on YouTube. These records were prepared on 24 October 2026.
