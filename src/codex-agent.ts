@@ -13,6 +13,10 @@ const OAUTH_LOGIN_MESSAGE = "Persona generation requires a file-backed Codex Cha
 // refreshes from multiple persona generations within this server process.
 let oauthRun: Promise<void> = Promise.resolve();
 
+export interface CodexRuntimeOptions {
+  requestTimeoutMs?: number;
+}
+
 async function oauthAuthPath(): Promise<string> {
   try {
     const path = await realpath(join(resolve(process.env.CODEX_HOME || join(homedir(), ".codex")), "auth.json"));
@@ -50,6 +54,7 @@ export class CodexDebateAgent implements DebateAgent {
     model?: string,
     private readonly oauth = false,
     private readonly speakingStyle: string | null = null,
+    private readonly requestTimeoutMs = 120_000,
   ) {
     this.options = {
       ...(model ? { model } : {}),
@@ -62,9 +67,13 @@ export class CodexDebateAgent implements DebateAgent {
     };
   }
 
-  static async create(config: ProviderConfig, instructions?: string): Promise<CodexDebateAgent> {
+  static async create(config: ProviderConfig, instructions?: string, options: CodexRuntimeOptions = {}): Promise<CodexDebateAgent> {
+    const requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
+    if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 600_000) {
+      throw new DebateError("The generation request timeout must be between 1 and 600,000 milliseconds.");
+    }
     const speakingStyle = instructions === undefined ? await loadSpeakingStyle() : null;
-    return this.createRuntime(instructions ?? DEBATE_INSTRUCTIONS, config, undefined, speakingStyle);
+    return this.createRuntime(instructions ?? DEBATE_INSTRUCTIONS, config, undefined, speakingStyle, requestTimeoutMs);
   }
 
   static async createOAuth(instructions: string): Promise<CodexDebateAgent> {
@@ -72,7 +81,7 @@ export class CodexDebateAgent implements DebateAgent {
     return this.createRuntime(instructions, undefined, authPath);
   }
 
-  private static async createRuntime(instructions: string, config?: ProviderConfig, authPath?: string, speakingStyle: string | null = null): Promise<CodexDebateAgent> {
+  private static async createRuntime(instructions: string, config?: ProviderConfig, authPath?: string, speakingStyle: string | null = null, requestTimeoutMs = 120_000): Promise<CodexDebateAgent> {
     const root = await realpath(await mkdtemp(join(tmpdir(), "debate-runtime-")));
     try {
       const stateDirectory = join(root, "codex");
@@ -100,6 +109,9 @@ export class CodexDebateAgent implements DebateAgent {
           ...(!config ? { cli_auth_credentials_store: "file", forced_login_method: "chatgpt" } : {}),
           model_instructions_file: instructionsPath,
           model_reasoning_summary: "none",
+          // GLM-5.3-Flash defaults to max thinking when effort is omitted.
+          // Request its supported low budget for these short debate tasks.
+          ...(config?.model === "zai-org/GLM-5.3-Flash" ? { model_reasoning_effort: "low" } : {}),
           suppress_unstable_features_warning: true,
           web_search: "disabled",
           mcp_servers: {},
@@ -133,7 +145,7 @@ export class CodexDebateAgent implements DebateAgent {
           } } : {}),
         },
       });
-      return new CodexDebateAgent(codex, root, config?.model || process.env.CODEX_PERSONA_MODEL?.trim(), Boolean(authPath), speakingStyle);
+      return new CodexDebateAgent(codex, root, config?.model || process.env.CODEX_PERSONA_MODEL?.trim(), Boolean(authPath), speakingStyle, requestTimeoutMs);
     } catch (error) {
       await rm(root, { recursive: true, force: true });
       throw error;
@@ -220,7 +232,7 @@ export class CodexDebateAgent implements DebateAgent {
   }
 
   private async runTurn(thread: Thread, prompt: string, signal: AbortSignal, outputSchema?: unknown): Promise<string> {
-    const timeout = AbortSignal.timeout(120_000);
+    const timeout = AbortSignal.timeout(this.requestTimeoutMs);
     const abort = new AbortController();
     const combined = AbortSignal.any([signal, timeout, abort.signal]);
     try {
@@ -249,7 +261,12 @@ export class CodexDebateAgent implements DebateAgent {
       if (!completed || !finalResponse.trim()) throw new DebateError("The provider did not complete a text response. Check Responses compatibility and retry.");
       return finalResponse.trim();
     } catch (error) {
-      if (timeout.aborted && !signal.aborted) throw new DebateError("Generation timed out after two minutes. Retry or start a new session.");
+      if (timeout.aborted && !signal.aborted) {
+        const minutes = this.requestTimeoutMs % 60_000 === 0;
+        const amount = this.requestTimeoutMs / (minutes ? 60_000 : 1000);
+        const duration = `${amount} ${minutes ? "minute" : "second"}${amount === 1 ? "" : "s"}`;
+        throw new DebateError(`Generation timed out after ${duration}. Retry to continue from the last completed step.`);
+      }
       if (this.oauth && error instanceof Error && /\b(401|403)\b|unauthorized|authentication|refresh.token|login|sign.in/i.test(error.message)) {
         throw new DebateError("Codex ChatGPT authentication failed. Run codex login and retry persona generation.");
       }

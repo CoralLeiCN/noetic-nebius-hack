@@ -119,24 +119,26 @@ export class ArenaService {
         for (const agent of entry.agents) agent.resetPractice();
         state.status = "positions_ready";
       } else {
-        if (stage === "run") {
-          state.side = state.pending!.side!;
-          while (state.results.length < state.models.participants.length) {
-            const index = state.results.length;
+        if (stage === "run") state.side = state.pending!.side!;
+        for (let index = 0; index < state.models.participants.length; index++) {
+          let result = state.results[index];
+          if (!result) {
+            state.status = "generating_arguments";
+            state.pending = { kind: "run", side: state.side! };
             const context: PracticeContext = structuredClone({ topic: state.topic, positions: state.positions!,
-              assistantSide: state.side, humanSide: state.side === "affirmative" ? "negative" : "affirmative",
+              assistantSide: state.side!, humanSide: state.side === "affirmative" ? "negative" : "affirmative",
               speaker: state.speaker, messages: [] });
             const text = nonempty(await entry.agents[index]!.opening(context, controller.signal), "Arena argument");
             if (controller.signal.aborted) return;
             if (text.length > 24_000) throw new RecordError(502, "Arena argument exceeds the evaluation context limit. Retry generation.");
-            state.results.push({ model: structuredClone(state.models.participants[index]!), text, judgment: null });
+            result = { model: structuredClone(state.models.participants[index]!), text, judgment: null };
+            state.results.push(result);
           }
-          // Generation is committed before evaluation; retries never repeat successful openings.
-          state.pending = { kind: "judge" };
-        }
-        state.status = "judging";
-        for (const result of state.results) {
           if (result.judgment) continue;
+          // Commit each opening before scoring it, then finish its score before
+          // starting the next participant. Retries preserve both completed steps.
+          state.status = "judging";
+          state.pending = { kind: "judge" };
           const judgment = await entry.judge.judge(structuredClone({ topic: state.topic, positions: state.positions!,
             side: state.side!, text: result.text, messages: [] }), controller.signal);
           if (controller.signal.aborted) return;
@@ -147,8 +149,8 @@ export class ArenaService {
       state.pending = null;
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (stage === "run") for (const agent of entry.agents) agent.resetPractice();
-      state.status = state.pending?.kind === "judge" ? "awaiting_judgment" : previous;
+      if (state.pending?.kind === "run") for (const agent of entry.agents) agent.resetPractice();
+      state.status = state.pending?.kind === "judge" ? "awaiting_judgment" : stage === "prepare" ? previous : "positions_ready";
       throw error;
     } finally { if (entry.controller === controller) entry.controller = null; }
   }

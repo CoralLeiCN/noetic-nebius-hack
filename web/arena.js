@@ -151,8 +151,11 @@
     const waiting = busy || (generating() && !uncertain);
     const positions = session?.positions;
     const pending = Boolean(session?.pending);
-    const judging = session?.status === "judging" || (busy && activeAction === "judge");
+    const judging = session?.status === "judging" || (busy && activeAction === "judge" && !generating());
     const running = session?.status === "generating_arguments" || (busy && activeAction === "run");
+    const scored = session?.results.filter(result => result.judgment).length || 0;
+    const judgingResult = session?.results.find(result => !result.judgment);
+    const nextModel = session?.models.participants[session.results.length];
     $("arena-fields").disabled = waiting || Boolean(session);
     $("arena-prepare").disabled = waiting || loadingModels || !speakers.length || !models.length || Boolean(session) || roles.some(role => !$(`arena-${role}-model`).value);
     $("arena-prepare").textContent = waiting && !positions ? "Preparing comparison…" : "Prepare comparison ↗";
@@ -163,8 +166,8 @@
     $("arena-detail").hidden = !positions;
     $("arena-badge").textContent = ended ? "ENDED" : uncertain ? "RECONNECT" : judging ? "JUDGING" : waiting ? "GENERATING" : completed ? "SCORED" : session?.status === "awaiting_judgment" ? "READY TO JUDGE" : positions ? "POSITIONS READY" : "SETUP";
     $("arena-status").textContent = ending ? "Ending the comparison…" : uncertain ? "Refresh the comparison to confirm its latest state." :
-      waiting ? judging ? `Practice’s judge is scoring each speech. ${session.results.filter(result => result.judgment).length} of 4 scores ready.` : running ? `Generating four independent openings. ${session?.results.length || 0} of 4 speeches ready.` : "Preparing the opposing positions. This can take up to two minutes." :
-      ended ? "Comparison ended. The completed transcript and any scores remain below." : pending ? "Generation stopped. Retry to continue from the last completed step." : "";
+      waiting ? judging ? `Scoring ${label(judgingResult?.model)}’s opening. ${scored} of 4 scores ready. The next agent starts after this score.` : running ? `Generating opening ${Math.min((session?.results.length || 0) + 1, 4)} of 4${nextModel ? ` · ${label(nextModel)}` : ""}. ${scored} of 4 scores ready. Each opening is scored before the next agent starts.` : "Preparing the opposing positions. This can take several minutes." :
+      ended ? "Comparison ended. The completed transcript and any scores remain below." : pending ? `${session.pending.kind === "judge" ? "Scoring" : "Generation"} stopped. Retry to continue from the last completed step; completed speeches and scores are saved.` : "";
     $("arena-sync").hidden = !uncertain || waiting;
     $("arena-retry").hidden = !pending || waiting || ended || uncertain;
     $("arena-end").hidden = !session || ended || completed;

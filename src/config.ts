@@ -6,6 +6,16 @@ export interface ProviderConfig {
   model: string;
 }
 
+/** A per-model request budget; each Arena generation and score gets its own deadline. */
+export function arenaRequestTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const value = env.ARENA_REQUEST_TIMEOUT_SECONDS?.trim();
+  const seconds = value ? Number(value) : 300;
+  if (!Number.isInteger(seconds) || seconds < 30 || seconds > 600) {
+    throw new DebateError("ARENA_REQUEST_TIMEOUT_SECONDS must be an integer between 30 and 600.");
+  }
+  return seconds * 1000;
+}
+
 export function loadProviderConfig(env: NodeJS.ProcessEnv = process.env): Omit<ProviderConfig, "model"> {
   function required(name: string): string {
     const value = env[name]?.trim();

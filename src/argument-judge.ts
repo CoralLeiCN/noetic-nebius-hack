@@ -1,4 +1,4 @@
-import { CodexDebateAgent } from "./codex-agent.js";
+import { CodexDebateAgent, type CodexRuntimeOptions } from "./codex-agent.js";
 import type { ProviderConfig } from "./config.js";
 import type { Positions, Side } from "./debate.js";
 import { DebateError } from "./errors.js";
@@ -93,8 +93,8 @@ export function parseArgumentJudgment(raw: string): ArgumentJudgment {
 export class CodexArgumentJudge implements ArgumentJudge {
   private constructor(private readonly agent: CodexDebateAgent) {}
 
-  static async create(config: ProviderConfig): Promise<CodexArgumentJudge> {
-    return new CodexArgumentJudge(await CodexDebateAgent.create(config, ARGUMENT_JUDGE_INSTRUCTIONS));
+  static async create(config: ProviderConfig, options: CodexRuntimeOptions = {}): Promise<CodexArgumentJudge> {
+    return new CodexArgumentJudge(await CodexDebateAgent.create(config, ARGUMENT_JUDGE_INSTRUCTIONS, options));
   }
 
   async judge(input: ArgumentJudgeInput, signal: AbortSignal): Promise<ArgumentJudgment> {

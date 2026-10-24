@@ -61,7 +61,7 @@ function textOf(element: UiElement): string {
   return [element.textContent, ...element.children.map(textOf)].join(" ");
 }
 
-async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; authored?: boolean } = {}) {
+async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; authored?: boolean; pendingRun?: boolean } = {}) {
   const html = await readFile(resolve("web/index.html"), "utf8");
   const elements = new Map<string, UiElement>();
   for (const match of html.matchAll(/id="([^"]+)"/gu)) {
@@ -76,6 +76,7 @@ async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; autho
   const storage = new Map<string, string>();
   const requests: { path: string; body: Record<string, string> | null }[] = [];
   let snapshot = initial();
+  let finishRun: ((response: Response) => void) | undefined;
   const fetch = async (path: string, request?: { body: string }): Promise<Response> => {
     const body = request ? JSON.parse(request.body) as Record<string, string> : null;
     requests.push({ path, body });
@@ -90,6 +91,10 @@ async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; autho
     }
     if (path === `/api/arenas/${snapshot.id}/run`) {
       assert.ok(body?.side === "affirmative" || body?.side === "negative");
+      if (options.pendingRun) {
+        snapshot = { ...snapshot, status: "generating_arguments", side: body.side, pending: { kind: "run", side: body.side } };
+        return new Promise<Response>(resolve => { finishRun = resolve; });
+      }
       snapshot = { ...snapshot, status: "completed", side: body.side, results: results() };
       if (options.failScoring) {
         snapshot.status = "awaiting_judgment"; snapshot.pending = { kind: "judge" };
@@ -107,6 +112,7 @@ async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; autho
   };
   const source = await readFile(resolve("web/arena.js"), "utf8");
   let timerId = 0;
+  const timers: (() => void)[] = [];
   runInNewContext(source, {
     document: {
       getElementById: element,
@@ -116,12 +122,23 @@ async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; autho
     sessionStorage: { getItem: (name: string) => storage.get(name) ?? null,
       setItem: (name: string, value: string) => storage.set(name, value), removeItem: (name: string) => storage.delete(name) },
     fetch,
-    // Monitor timers are deliberately idle: these tests exercise completed request responses.
-    setTimeout: () => ++timerId,
+    // Advance polling explicitly to observe intermediate state without real delays.
+    setTimeout: (callback: () => void) => { timers.push(callback); return ++timerId; },
   }, { filename: "web/arena.js" });
   for (const listener of documentEvents.get("workspace-screen") ?? []) void listener({ preventDefault() {}, detail: "arena" });
   await flush();
-  return { element, requests, async prepare() {
+  return { element, requests,
+    async progress(update: Partial<ArenaSnapshot>) {
+      snapshot = { ...snapshot, ...update };
+      for (const timer of timers.splice(0)) timer();
+      await flush();
+    },
+    async finish(error?: string) {
+      assert.ok(finishRun);
+      finishRun(error ? Response.json({ error, session: snapshot }, { status: 502 }) : Response.json(snapshot));
+      await flush();
+    },
+    async prepare() {
     element("arena-topic").value = "  Public transport  ";
     element("arena-form").emit("submit");
     await flush();
@@ -161,6 +178,39 @@ test("Arena prepares with random participants and renders four automatically sco
     assert.match(textOf(row), /Provisional criteria/);
     assert.equal(row.children[1]!.attributes.get("aria-valuenow"), String(70 + index));
   }
+});
+
+test("Arena polling shows each score before the next opening completes and preserves it after a timeout", async () => {
+  const app = await ui({ pendingRun: true });
+  await app.prepare();
+  app.element("arena-side").value = "affirmative";
+  app.element("arena-run").emit("click");
+  await flush();
+
+  const first = results()[0]!;
+  await app.progress({ status: "judging", pending: { kind: "judge" }, results: [{ ...first, judgment: null }] });
+  assert.equal(app.element("arena-messages").children.length, 1);
+  assert.equal(app.element("arena-scores").children.length, 0);
+  assert.match(app.element("arena-status").textContent, /Scoring Test · Model a/);
+  assert.equal(app.element("arena-retry").hidden, true);
+
+  await app.progress({ status: "generating_arguments", pending: { kind: "run", side: "affirmative" }, results: [first] });
+  assert.equal(app.element("arena-scores").children.length, 1);
+  assert.match(textOf(app.element("arena-scores")), /70 \/ 100/);
+  assert.match(app.element("arena-status").textContent, /Generating opening 2 of 4 · Test · Model b/);
+  assert.match(app.element("arena-status").textContent, /1 of 4 scores ready/);
+  assert.equal(app.element("arena-new").hidden, true);
+
+  await app.progress({ status: "positions_ready" });
+  await app.finish("Generation timed out after 5 minutes. Retry to continue.");
+  assert.equal(app.element("arena-scores").children.length, 1);
+  assert.equal(app.element("arena-messages").children.length, 1);
+  assert.equal(app.element("arena-retry").hidden, false);
+  assert.match(app.element("arena-error").textContent, /timed out/);
+  app.element("arena-retry").emit("click");
+  await flush();
+  assert.equal(app.element("arena-scores").children.length, 4);
+  assert.equal(app.requests.filter(request => request.path.endsWith("/run")).length, 1);
 });
 
 test("Arena scoring retry preserves four speeches and requests only unfinished scoring", async () => {

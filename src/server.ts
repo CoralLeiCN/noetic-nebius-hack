@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadConfig } from "./config.js";
+import { arenaRequestTimeoutMs, loadConfig } from "./config.js";
 import { CodexDebateAgent } from "./codex-agent.js";
 import { DebateService, type DebateAction } from "./debate-service.js";
 import { ModelCatalog } from "./models.js";
@@ -92,8 +92,8 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
   debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model)), undefined,
     model => CodexArgumentJudge.create(loadConfig(process.env, model))),
   models = new ModelCatalog(), arenaModels = new ArenaCatalog(),
-  arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model)),
-    model => CodexArgumentJudge.create(arenaModels.config(model))), personas = new PersonaService(service),
+  arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model), undefined, { requestTimeoutMs: arenaRequestTimeoutMs() }),
+    model => CodexArgumentJudge.create(arenaModels.config(model), { requestTimeoutMs: arenaRequestTimeoutMs() })), personas = new PersonaService(service),
   speech: SpeechApi = new SpeechServiceClient()) {
   let processing = false;
   const server = createServer(async (request, response) => {

@@ -22,7 +22,7 @@ Arena randomly selects four distinct model IDs from its configured providers and
 
 ### Shared scoring criteria
 
-Arena automatically scores each opening using Practice’s existing `CodexArgumentJudge`, with the same structured response contract and validation. A separate judge runtime uses the selected judge model, defaulting to the catalog default when none is selected. Every candidate is assessed by that same judge model. Scores for clarity, reasoning and engagement have equal weight; the application rounds their mean to calculate the overall score. Each result includes concise feedback and the criterion breakdown described above.
+Arena automatically scores each opening immediately after it is generated, before the next participant begins, using Practice’s existing `CodexArgumentJudge` with the same structured response contract and validation. Each completed score is visible while the remaining participants run. A separate judge runtime uses the selected judge model, defaulting to the catalog default when none is selected. Every candidate is assessed by that same judge model. Scores for clarity, reasoning and engagement have equal weight; the application rounds their mean to calculate the overall score. Each result includes concise feedback and the criterion breakdown described above.
 
 All scores are provisional and evaluate the supplied speeches on their shared topic and side. They do not establish an overall model ranking. Edit the shared speech judge prompt and update this document and validation tests together when changing the criteria.
 
@@ -30,7 +30,7 @@ All scores are provisional and evaluate the supplied speeches on their shared to
 
 Each evaluation receives only the topic, shared motion and positions, chosen side and target speech. Its preceding-speeches list is empty. The judge does not receive model identities, persona instructions, other candidates’ speeches or earlier scores. Opening speeches are assessed for reasoning and anticipation of objections without requiring responses to opponents who have not spoken. Supplied content remains untrusted debate data; the judge must not invent evidence or treat simulated speeches as the real speaker’s statements.
 
-Generated speech text is retained before evaluation. Failed generation or malformed judge output leaves confirmed speeches and successful scores intact. Retrying continues only the unfinished work; the application never substitutes sample or random scores. Ending the session aborts in-progress work and prevents late output from being committed. Credentials and raw provider errors are excluded from public session data.
+Generated speech text is retained before evaluation. Failed generation or malformed judge output leaves confirmed speeches and successful scores intact. Retrying continues only the unfinished work, including remaining participants after a scoring retry; the application never substitutes sample or random scores. Arena preparation, opening and judge requests each default to a five-minute timeout, configurable with `ARENA_REQUEST_TIMEOUT_SECONDS` (30–600 seconds). Ending the session aborts in-progress work and prevents late output from being committed. Credentials and raw provider errors are excluded from public session data.
 
 ## Draft rubric
 

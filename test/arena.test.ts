@@ -79,25 +79,28 @@ test("Arena API compares four random models through Practice and retries only fa
     const prepared = await (await post(route + "/prepare", { topic: "AI in education" })).json() as ArenaSnapshot;
     assert.deepEqual(prepared.positions, POSITIONS);
     assert.equal((await post(route + "/run", { side: "both" })).status, 400);
-    const failed = await post(route + "/run", { side: "negative" }); assert.equal(failed.status, 502);
+    const judgeFailure = await post(route + "/run", { side: "negative" }); assert.equal(judgeFailure.status, 502);
+    const judgeState = (await judgeFailure.json()).session as ArenaSnapshot;
+    assert.equal(judgeState.status, "awaiting_judgment");
+    assert.equal(judgeState.results.length, 2, "the second speech is scored before the third begins");
+    assert.equal(judgeState.results.filter(result => result.judgment).length, 1);
+    assert.equal(judgeState.pending?.kind, "judge");
+    assert.equal(completedOpenings, 2);
+    const failed = await post(route + "/retry"); assert.equal(failed.status, 502);
     const failure = await failed.json() as { error: string; session: ArenaSnapshot };
     assert.doesNotMatch(failure.error, /private-secret/);
+    assert.equal(failure.session.status, "positions_ready");
     assert.equal(failure.session.results.length, 3);
+    assert.equal(failure.session.results.filter(result => result.judgment).length, 3);
     assert.deepEqual(failure.session.pending, { kind: "run", side: "negative" });
     assert.equal(failedOpeningAttempts, 0, "provider retries are exhausted before requiring manual recovery");
     assert.equal((await post(route + "/judge")).status, 409);
-    const judgeFailure = await post(route + "/retry"); assert.equal(judgeFailure.status, 502);
-    const judgeState = (await judgeFailure.json()).session as ArenaSnapshot;
-    assert.equal(judgeState.status, "awaiting_judgment");
-    assert.equal(judgeState.results.length, 4);
-    assert.equal(judgeState.results.filter(result => result.judgment).length, 1);
-    assert.equal(judgeState.pending?.kind, "judge");
-    assert.equal(completedOpenings, 4, "retry only generates the missing opening");
     const scored = await (await post(route + "/retry")).json() as ArenaSnapshot;
     assert.equal(scored.status, "completed");
     assert.equal(scored.side, "negative");
     assert.equal(scored.pending, null);
-    assert.equal(judgeAttempts, 5, "one successful score is preserved when retrying three unscored openings");
+    assert.equal(completedOpenings, 4, "retry only generates the missing opening");
+    assert.equal(judgeAttempts, 5, "successful scores are preserved across both scoring and generation retries");
     for (const result of scored.results) {
       assert.equal(result.judgment?.score, 78);
       assert.equal(result.judgment?.criteria, ARGUMENT_CRITERIA);
@@ -174,4 +177,78 @@ test("Arena isolates independent opening contexts, rejects concurrent runs and s
       await service.act(next.id, "end");
     }
   } finally { await service.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("Arena publishes each score before the next opening and keeps completed scores when ending during judging", { timeout: 10_000 }, async () => {
+  const { root, videos, persona } = await sources();
+  const deferred = <T>() => {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>(done => { resolve = done; });
+    return { promise, resolve };
+  };
+  const firstJudgeStarted = deferred<void>();
+  const secondOpeningStarted = deferred<void>();
+  const secondJudgeStarted = deferred<void>();
+  const firstScore = deferred<Awaited<ReturnType<ArgumentJudge["judge"]>>>();
+  const secondScore = deferred<Awaited<ReturnType<ArgumentJudge["judge"]>>>();
+  const secondOpening = deferred<string>();
+  const events: string[] = [];
+  let judgeCalls = 0;
+  const service = new ArenaService(videos, async model => ({
+    prepare: async () => POSITIONS,
+    opening: async () => {
+      events.push(`opening:${model.id}`);
+      if (model.id === "b") {
+        secondOpeningStarted.resolve();
+        return secondOpening.promise;
+      }
+      return `Opening ${model.id}`;
+    },
+    reply: async () => { throw new Error("Arena only generates independent openings"); },
+    resetPractice() {}, dispose: async () => {},
+  }), async () => ({
+    judge: async input => {
+      events.push(`judge:${input.text}`);
+      judgeCalls++;
+      if (judgeCalls === 1) { firstJudgeStarted.resolve(); return firstScore.promise; }
+      secondJudgeStarted.resolve(); return secondScore.promise;
+    },
+    dispose: async () => {},
+  }));
+  try {
+    const arena = await service.create(persona.id, models);
+    await service.act(arena.id, "prepare", "Learning");
+    const running = service.act(arena.id, "run", "affirmative");
+    await firstJudgeStarted.promise;
+    const judgingFirst = service.get(arena.id);
+    assert.equal(judgingFirst.status, "judging");
+    assert.equal(judgingFirst.results.length, 1);
+    assert.equal(judgingFirst.results[0]!.judgment, null);
+    assert.deepEqual(events, ["opening:a", "judge:Opening a"]);
+    const judgment = await judge.judge({ topic: "Learning", positions: POSITIONS, side: "affirmative", text: "Opening a", messages: [] }, new AbortController().signal);
+    firstScore.resolve(judgment);
+    await secondOpeningStarted.promise;
+    const generatingSecond = service.get(arena.id);
+    assert.equal(generatingSecond.status, "generating_arguments");
+    assert.equal(generatingSecond.results.length, 1);
+    assert.equal(generatingSecond.results[0]!.judgment?.score, 75);
+    assert.deepEqual(generatingSecond.pending, { kind: "run", side: "affirmative" });
+    secondOpening.resolve("Opening b");
+    await secondJudgeStarted.promise;
+    const ended = service.act(arena.id, "end");
+    secondScore.resolve(judgment);
+    await running; await ended;
+    const final = service.get(arena.id);
+    assert.equal(final.status, "ended");
+    assert.equal(final.pending, null);
+    assert.equal(final.results.length, 2);
+    assert.equal(final.results[0]!.judgment?.score, 75);
+    assert.equal(final.results[1]!.judgment, null, "late scoring must not publish after cancellation");
+    assert.deepEqual(events, ["opening:a", "judge:Opening a", "opening:b", "judge:Opening b"]);
+  } finally {
+    secondOpening.resolve("Cleanup");
+    const cleanup = await judge.judge({ topic: "Learning", positions: POSITIONS, side: "affirmative", text: "Cleanup", messages: [] }, new AbortController().signal);
+    firstScore.resolve(cleanup); secondScore.resolve(cleanup);
+    await service.close(); await rm(root, { recursive: true, force: true });
+  }
 });

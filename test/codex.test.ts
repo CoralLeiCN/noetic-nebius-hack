@@ -5,6 +5,16 @@ import { DebateSession } from "../src/debate.js";
 import { publicError } from "../src/errors.js";
 import { providerFixture, POSITIONS } from "./fixture.js";
 
+test("GLM 5.3 Flash sends low reasoning effort through the actual Responses request", { timeout: 30_000 }, async () => {
+  const fixture = await providerFixture(() => JSON.stringify(POSITIONS));
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "zai-org/GLM-5.3-Flash" });
+  try {
+    await agent.prepare("AI in education", new AbortController().signal);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal((fixture.requests[0]!.body.reasoning as { effort?: string } | undefined)?.effort, "low");
+  } finally { await agent.dispose(); await fixture.close(); }
+});
+
 test("real Codex SDK routes preparation and contextual practice to a custom Responses endpoint", { timeout: 60_000 }, async () => {
   const fixture = await providerFixture((_request, index) => index === 0 ? JSON.stringify(POSITIONS) : `Assistant argument ${index}`);
   const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
@@ -126,12 +136,28 @@ test("aborting generation stops unavailable-provider retries", { timeout: 60_000
     cancel ??= setTimeout(() => controller.abort(new Error("Canceled test generation")), 25);
     return { status: 503, body: '{"error":{"message":"temporary unavailability"}}' };
   });
-  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" }, undefined,
+    { requestTimeoutMs: 300_000 });
   try {
     await assert.rejects(agent.prepare("AI", controller.signal));
     assert.equal(controller.signal.aborted, true);
     assert.equal(fixture.requests.length, 1);
   } finally { clearTimeout(cancel); await agent.dispose(); await fixture.close(); }
+});
+
+test("a custom request deadline aborts a stalled provider and allows a fresh retry", { timeout: 15_000 }, async () => {
+  let release!: (text: string) => void;
+  const stalled = new Promise<string>(resolve => { release = resolve; });
+  const fixture = await providerFixture((_request, index) => index === 0 ? stalled : JSON.stringify(POSITIONS));
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" }, undefined,
+    { requestTimeoutMs: 1500 });
+  try {
+    await assert.rejects(agent.prepare("AI", new AbortController().signal), /Generation timed out after 1.5 seconds/);
+    assert.equal(fixture.requests.length, 1, "The deadline aborts the request without an automatic generation replay.");
+    release(JSON.stringify(POSITIONS));
+    assert.deepEqual(await agent.prepare("AI", new AbortController().signal), POSITIONS);
+    assert.equal(fixture.requests.length, 2);
+  } finally { release(JSON.stringify(POSITIONS)); await agent.dispose(); await fixture.close(); }
 });
 
 test("actual SDK authentication failures are sanitized with no provider fallback", { timeout: 60_000 }, async () => {

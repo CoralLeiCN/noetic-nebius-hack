@@ -1,9 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadConfig, loadProviderConfig } from "../src/config.js";
+import { arenaRequestTimeoutMs, loadConfig, loadProviderConfig } from "../src/config.js";
 import { publicError } from "../src/errors.js";
 
 const env = { NEBIUS_BASE_URL: "https://example.com/deployment/v1/", NEBIUS_API_KEY: "secret-for-test", NEBIUS_MODEL: "configured/model" };
+
+test("Arena requests default to five minutes and accept only bounded timeout settings", () => {
+  assert.equal(arenaRequestTimeoutMs({}), 300_000);
+  assert.equal(arenaRequestTimeoutMs({ ARENA_REQUEST_TIMEOUT_SECONDS: " " }), 300_000);
+  assert.equal(arenaRequestTimeoutMs({ ARENA_REQUEST_TIMEOUT_SECONDS: "30" }), 30_000);
+  assert.equal(arenaRequestTimeoutMs({ ARENA_REQUEST_TIMEOUT_SECONDS: "600" }), 600_000);
+  for (const value of ["0", "29", "601", "30.5", "Infinity", "invalid"]) {
+    assert.throws(() => arenaRequestTimeoutMs({ ARENA_REQUEST_TIMEOUT_SECONDS: value }), /ARENA_REQUEST_TIMEOUT_SECONDS/);
+  }
+});
 
 test("custom endpoint paths and model IDs are preserved", () => {
   assert.deepEqual(loadConfig(env), { baseUrl: "https://example.com/deployment/v1", apiKey: env.NEBIUS_API_KEY, model: env.NEBIUS_MODEL });
