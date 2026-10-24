@@ -52,6 +52,6 @@ data/
 
 | Speaker | Compiled persona | Training sources |
 | --- | --- | --- |
-| Andy Burnham | [Persona Markdown](persona-b69edf22-13f3-4ae8-b3a5-63462f0cd8f2/persona.md) | [Parliamentary exchange](youtube-xX9c2Vg2Z00/README.md) |
+| Andy Burnham | [Persona Markdown](persona-68d19c77-1a2b-4011-8b53-7af83acb37f5/persona.md) | [Parliamentary exchange](youtube-xX9c2Vg2Z00/README.md) |
 
-The Andy Burnham persona was compiled through a live Codex OAuth request on October 24, 2026. It reflects one captioned exchange; its observations are scoped to that source.
+The latest Andy Burnham persona was compiled through a live Codex OAuth request on October 24, 2026 at 14:26:43 UTC. Only this version is retained in the checkout; older versions remain in Git history. It reflects one captioned exchange; its observations are scoped to that source.
