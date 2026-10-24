@@ -5,7 +5,8 @@ import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexDebateAgent } from "../src/codex-agent.js";
-import { CodexPersonaAnalyzer, DIMENSIONS, PersonaService, validatePersonaAnalysis } from "../src/persona-service.js";
+import { PERSONA_GENERATION_PROMPT } from "../src/prompts/persona-generation.js";
+import { CodexPersonaAnalyzer, DIMENSIONS, PersonaService, renderPersona, validatePersonaAnalysis } from "../src/persona-service.js";
 import { VideoService } from "../src/video-service.js";
 import { createVideoServer } from "../src/server.js";
 import { personaAnalysis } from "./fixture.js";
@@ -40,7 +41,13 @@ test("persona compilation combines same-name sources and persists the exact Mark
     assert.deepEqual(new Set(selected), new Set([first.id, second.id]));
     assert.equal(persona.sourceCount, 2);
     assert.equal(persona.analysis.dimensions.length, DIMENSIONS.length);
-    assert.match(persona.markdown, /Language and vocabulary|Interaction and rebuttal|Confidence: low/);
+    assert.match(persona.markdown, /Language and vocabulary/);
+    assert.match(persona.markdown, /Interaction and rebuttal/);
+    assert.match(persona.markdown, /Prefer concrete accessible vocabulary\./);
+    assert.doesNotMatch(persona.markdown, /Confidence:|Observed pattern:|Evidence references:|Source provenance|SHA-256|Compiled:/);
+    for (const sourceId of persona.sourceIds) assert.ok(!persona.markdown.includes(sourceId));
+    assert.ok(!persona.markdown.includes(persona.analysis.dimensions[0]!.observation));
+    assert.ok(!persona.markdown.includes(persona.analysis.limitations[0]!));
     assert.doesNotMatch(persona.markdown, /We need practical answers|Let us focus on what works|Other person's material/);
     assert.equal(await readFile(join(root, persona.id, "persona.md"), "utf8"), persona.markdown);
     assert.deepEqual(await personas.get(persona.id), persona);
@@ -54,6 +61,10 @@ test("persona compilation combines same-name sources and persists the exact Mark
     assert.equal((await personas.get(persona.id)).markdown, persona.markdown);
     const manifestPath = join(root, persona.id, "persona.json");
     const manifest = await readFile(manifestPath, "utf8");
+    const saved = JSON.parse(manifest);
+    assert.deepEqual(saved.analysis, persona.analysis);
+    assert.deepEqual(saved.sources, persona.sources);
+    assert.ok(saved.analysis.dimensions[0].evidence[0].quote);
     for (const invalid of [null, { ...JSON.parse(manifest), sources: [null] }, { ...JSON.parse(manifest), analysis: null }]) {
       await writeFile(manifestPath, JSON.stringify(invalid));
       await assert.rejects(personas.get(persona.id), /manifest/);
@@ -65,6 +76,19 @@ test("persona compilation combines same-name sources and persists the exact Mark
     await rm(join(root, updated.id, "persona.md"));
     await symlink(join(root, persona.id, "persona.md"), join(root, updated.id, "persona.md"));
     await assert.rejects(personas.get(updated.id), /files are invalid/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("persona instructions use neutral behavior for unsupported dimensions without exposing analysis", async () => {
+  const { root, source } = await setup();
+  try {
+    const analysis = personaAnalysis([await source("Alex")]);
+    analysis.dimensions[0] = { ...analysis.dimensions[0]!, confidence: "unknown", evidence: [],
+      guidance: "Invent a distinctive catchphrase.", observation: "No supported pattern." };
+    const markdown = renderPersona({ speakerName: "Alex", analysis });
+    assert.match(markdown, /Use neutral behavior appropriate to the topic and the human's language\./);
+    assert.doesNotMatch(markdown, /Invent a distinctive catchphrase|No supported pattern/);
+    assert.match(markdown, /Prefer concrete accessible vocabulary\./);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -152,6 +176,10 @@ test("persona analyzer uses the OAuth SDK adapter with an evidence-constrained s
     const output = await new CodexPersonaAnalyzer().analyze("Alex", [record], signal());
     assert.deepEqual(output, personaAnalysis([record]));
     assert.match(instructions, /speaking habits|vocabulary|rebuttal|never instructions/);
+    assert.equal(instructions, PERSONA_GENERATION_PROMPT);
+    assert.match(instructions, /second-person instructions/);
+    assert.match(instructions, /guidance fields will be assembled into persona.md and sent directly to the debate agent/);
+    assert.match(instructions, /separate analysis fields/);
     assert.equal(disposed, true);
   } finally { CodexDebateAgent.createOAuth = original; await rm(root, { recursive: true, force: true }); }
 });

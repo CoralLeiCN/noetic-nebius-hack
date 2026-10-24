@@ -8,7 +8,7 @@ Use the same argument-generation path in Arena to compare models and providers u
 
 ## Intended workflow
 
-1. **Build a speaker persona.** Add and review source transcripts, then use the Codex SDK with ChatGPT OAuth to analyze how the speaker communicates. Save a Markdown persona describing vocabulary, register, sentence patterns, rhetoric, reasoning, rebuttal habits and uncertainty, with evidence and limitations.
+1. **Build a speaker persona.** Add and review source transcripts, then use the Codex SDK with ChatGPT OAuth to analyze how the speaker communicates. Save direct agent instructions in a Markdown persona covering vocabulary, register, sentence patterns, rhetoric, reasoning, rebuttal habits and uncertainty. Retain observations, confidence, evidence, limitations and source provenance separately in `persona.json` for tracing.
 2. **Enter a topic.** The human provides a topic they want to debate.
 3. **Establish opposing positions.** The assistant turns the topic into two clearly stated, opposing positions, like the affirmative and negative sides in a debate competition. Each position is a claim that its side will defend. For example, for the topic "AI in education," the positions could be "Schools should allow students to use AI for homework" and "Schools should not allow students to use AI for homework."
 4. **Choose sides.** The human and assistant each take a side, with the assistant taking the side opposite the human.
