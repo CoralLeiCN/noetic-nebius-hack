@@ -4,6 +4,23 @@ let currentView = "summary";
 let requestController = null;
 let selectionVersion = 0;
 let renderVersion = 0;
+let transcriptionController = null;
+let playbackController = null;
+let speechAudioUrl = null;
+
+function stopSpeech() {
+  playbackController?.abort();
+  playbackController = null;
+  $("speech-player").pause();
+  $("speech-player").removeAttribute("src");
+  $("speech-player").hidden = true;
+  if (speechAudioUrl) URL.revokeObjectURL(speechAudioUrl);
+  speechAudioUrl = null;
+  $("stop-speech").hidden = true;
+  $("playback-status").textContent = "";
+  $("read-selection").disabled = false;
+}
+
 let personas = [];
 let selectedPersona = null;
 let loadingPersona = false;
@@ -75,6 +92,7 @@ async function select(id, requestedPersona = null) {
   try {
     const record = await api(`/api/videos/${encodeURIComponent(id)}`);
     if (version !== selectionVersion) return;
+    stopSpeech();
     selected = record;
     selectedPersona = requestedPersona;
     loadingPersona = !requestedPersona;
@@ -118,6 +136,7 @@ async function select(id, requestedPersona = null) {
 
 async function render() {
   if (!selected) return;
+  stopSpeech();
   const version = ++renderVersion;
   const record = selected;
   const content = $("record-content");
@@ -173,6 +192,7 @@ async function render() {
 
 for (const button of document.querySelectorAll("[data-input]")) button.addEventListener("click", () => {
   const { input, mode } = button.dataset;
+  if (input === "transcript") transcriptionController?.abort();
   for (const option of document.querySelectorAll(`[data-input="${input}"]`)) option.setAttribute("aria-pressed", String(option.dataset.mode === mode));
   for (const panel of document.querySelectorAll(`[data-panel="${input}"]`)) {
     const active = panel.dataset.mode === mode;
@@ -228,6 +248,7 @@ $("cancel").addEventListener("click", () => requestController?.abort());
 $("upload-form").addEventListener("submit", async event => {
   event.preventDefault();
   if (requestController) return;
+  if (transcriptionController) return showError("upload-error", "Finish or cancel transcription before generating a record.");
   showError("upload-error", "");
   const form = new FormData(event.currentTarget);
   const video = form.get("video");
@@ -258,5 +279,68 @@ $("upload-form").addEventListener("submit", async event => {
     $("submit").textContent = "Generate record ↗";
     $("cancel").hidden = true;
   }
+});
+
+$("cancel-transcription").addEventListener("click", () => transcriptionController?.abort());
+$("transcribe-audio").addEventListener("click", async () => {
+  if (transcriptionController) return;
+  showError("speech-error", "");
+  const file = $("speech-file").files[0];
+  if (!file || !file.size || file.size > 16 * 1024 * 1024) return showError("speech-error", "Choose an audio file of at most 16 MiB and 120 seconds.");
+  const original = $("transcriptText").value;
+  const controller = new AbortController();
+  transcriptionController = controller;
+  $("transcribe-audio").disabled = true;
+  $("cancel-transcription").hidden = false;
+  $("speech-status").textContent = "Transcribing audio locally…";
+  try {
+    const result = await api("/api/speech/transcriptions", { method: "POST", body: file, signal: controller.signal });
+    controller.signal.throwIfAborted();
+    if ($("transcriptText").value !== original) throw new Error("The transcript was edited while transcription ran. Your edits were kept; retry when ready.");
+    $("transcriptText").value = result.text;
+    $("speech-status").textContent = result.text.trim() ? "Transcript ready. Review recognition errors and speaker attribution before generating a record." : "No speech was recognized.";
+  } catch (error) {
+    $("speech-status").textContent = controller.signal.aborted ? "Transcription canceled." : "";
+    if (!controller.signal.aborted) showError("speech-error", error.message);
+  } finally {
+    transcriptionController = null;
+    $("transcribe-audio").disabled = false;
+    $("cancel-transcription").hidden = true;
+  }
+});
+
+$("stop-speech").addEventListener("click", stopSpeech);
+$("read-selection").addEventListener("click", async () => {
+  showError("playback-error", "");
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() || "";
+  if (!text || text.length > 600 || !selection.rangeCount || !$("record-content").contains(selection.getRangeAt(0).commonAncestorContainer)) {
+    return showError("playback-error", "Select up to 600 characters in the record above to read aloud.");
+  }
+  stopSpeech();
+  const controller = new AbortController();
+  playbackController = controller;
+  $("read-selection").disabled = true;
+  $("stop-speech").hidden = false;
+  $("playback-status").textContent = "Generating speech locally…";
+  try {
+    const response = await fetch("/api/speech/audio", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: text }), signal: controller.signal });
+    if (!response.ok) throw new Error((await response.json()).error || "Speech generation failed.");
+    const audio = await response.blob();
+    controller.signal.throwIfAborted();
+    speechAudioUrl = URL.createObjectURL(audio);
+    $("speech-player").src = speechAudioUrl;
+    $("speech-player").hidden = false;
+    $("playback-status").textContent = "Speech ready.";
+    try { await $("speech-player").play(); } catch { if (!controller.signal.aborted) $("playback-status").textContent = "Speech ready. Press Play to listen."; }
+  } catch (error) {
+    if (!controller.signal.aborted) { stopSpeech(); showError("playback-error", error.message); }
+  } finally {
+    if (playbackController === controller) $("read-selection").disabled = false;
+  }
+});
+window.addEventListener("pagehide", () => { transcriptionController?.abort(); stopSpeech(); });
+document.addEventListener("workspace-screen-changed", event => {
+  if (event.detail !== "library") { transcriptionController?.abort(); stopSpeech(); }
 });
 void refresh();

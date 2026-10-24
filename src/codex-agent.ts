@@ -50,8 +50,14 @@ async function oauthAuthPath(): Promise<string> {
   }
 }
 
+function rejectsResponseHistory(error: unknown): boolean {
+  return error instanceof Error && /ChatCompletionRequest/.test(error.message) &&
+    /output_text/.test(error.message) && /validation|valid string/.test(error.message);
+}
+
 export class CodexDebateAgent implements DebateAgent {
   private practiceThread: Thread | null = null;
+  private freshPracticeRequests = false;
   private preparationId: string | null = null;
   private readonly options: ThreadOptions;
 
@@ -136,7 +142,7 @@ export class CodexDebateAgent implements DebateAgent {
               wire_api: "responses",
               requires_openai_auth: false,
               supports_websockets: false,
-              request_max_retries: 0,
+              request_max_retries: 2,
               stream_max_retries: 0,
             },
           } } : {}),
@@ -159,7 +165,7 @@ export class CodexDebateAgent implements DebateAgent {
   }
 
   async prepare(topic: string, signal: AbortSignal): Promise<Positions> {
-    const thread = this.codex.startThread(this.options);
+    let thread = this.codex.startThread(this.options);
     const task = `Create one debate motion and exactly two opposing declarative positions about the topic.
 Use the same motion for both sides. They must be claims, not questions.
 Return only JSON with exactly these string fields: motion, affirmative, negative.
@@ -169,9 +175,16 @@ Topic data: ${JSON.stringify({ topic })}`;
     this.preparationId = thread.id;
     try { return parsePositions(output); }
     catch {
-      // One bounded content repair; transport failures are never retried here.
-      output = await this.run(thread,
-        "Repair the prior output. Return only a JSON object with exactly three nonempty string fields: motion, affirmative, negative. The two positions must be distinct opposing claims, not questions.", signal);
+      // One content repair; HTTP retries are bounded by the provider settings.
+      const repair = "Repair the prior output. Return only a JSON object with exactly three nonempty string fields: motion, affirmative, negative. The two positions must be distinct opposing claims, not questions.";
+      try { output = await this.run(thread, repair, signal); }
+      catch (error) {
+        if (signal.aborted || !rejectsResponseHistory(error)) throw error;
+        this.freshPracticeRequests = true;
+        thread = this.codex.startThread(this.options);
+        output = await this.run(thread, `${task}\n${repair}\nPrior output data: ${JSON.stringify(output)}`, signal);
+        this.preparationId = thread.id;
+      }
       return parsePositions(output);
     }
   }
@@ -193,8 +206,8 @@ Topic data: ${JSON.stringify({ topic })}`;
   }
 
   private async practice(context: PracticeContext, contribution: string | null, signal: AbortSignal): Promise<string> {
-    const fresh = !this.practiceThread;
-    const thread = this.practiceThread ?? this.codex.startThread(this.options);
+    const fresh = this.freshPracticeRequests || !this.practiceThread;
+    const thread = fresh ? this.codex.startThread(this.options) : this.practiceThread!;
     this.practiceThread = thread;
     const task = contribution === null
       ? "Present two or three distinct opening arguments for your assigned position, each with a claim and explanation."
@@ -206,6 +219,13 @@ Topic data: ${JSON.stringify({ topic })}`;
       // A failed runtime may have advanced its own history. Rebuild from the
       // application's confirmed transcript on retry, avoiding duplicate turns.
       if (this.practiceThread === thread) this.practiceThread = null;
+      // Some Responses-to-Chat gateways reject output_text history on a resumed
+      // thread. Only that explicit validation failure gets one fresh request;
+      // confirmed messages travel as debate data, preserving the conversation.
+      if (!fresh && contribution !== null && !signal.aborted && rejectsResponseHistory(error)) {
+        this.freshPracticeRequests = true;
+        return this.practice(context, contribution, signal);
+      }
       throw error;
     }
   }

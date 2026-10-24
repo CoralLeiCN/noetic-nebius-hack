@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 .debate/
+.speech/
 *.log
 .DS_Store
 data/.pending-*/

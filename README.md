@@ -53,7 +53,7 @@ npm run check:provider
 
 This command uses your configured model and consumes provider credits. It checks position generation, opening arguments, and two follow-up turns through the real Codex SDK, then prints the transcript for you to assess side consistency and response quality. A completed request to a Chat Completions endpoint does not establish Codex compatibility.
 
-Source extraction and debate generation do not fall back to OpenAI or another endpoint. Persona compilation is a separate operation that deliberately uses Codex OAuth, with no fallback to the debate provider. Authentication, protocol, and generation failures produce sanitized messages. Generation has a two-minute timeout. Source extraction and debate generation have no automatic transport retries; position output gets at most one content repair attempt.
+Source extraction and debate generation do not fall back to OpenAI or another endpoint. Persona compilation is a separate operation that deliberately uses Codex OAuth, with no fallback to the debate provider. Authentication, protocol, and generation failures produce sanitized messages. Each Codex run has a two-minute timeout. Provider-backed generation allows up to two HTTP retries for retryable failures; interrupted response streams are not replayed automatically. Position output gets at most one content repair attempt.
 
 ## Development
 
@@ -82,6 +82,18 @@ npm run start:web
 ```
 
 Open [debate practice](http://127.0.0.1:3000). First build a speaker persona in **Source library**. Enter a topic, choose a compiled speaker persona and a debate model, and select **Prepare debate**. Review the two positions, then take either side to start the opponent's opening. Send arguments or questions to continue. Regenerate positions before choosing a side, retry failed generations, or end the debate at any time. Starting a new debate lets you change the topic, speaker or model. **Source library** opens the source records and persona tools. Build or update a persona from the speaker's saved sources, review its Markdown, then select **Practice with this persona**.
+
+During generation, a visible spinner identifies the current stage and shows elapsed seconds. Replies can take up to two minutes; longer waits show additional guidance, and **End debate** cancels the request. The indicator has no percentage because the provider does not report completion progress. Provider outages, interrupted connections, and account or input limits receive distinct recovery messages.
+
+If a Responses-to-Chat gateway explicitly rejects resumed assistant `output_text` history, the adapter makes one fresh Codex request with the confirmed transcript supplied as debate data. Subsequent practice turns use that compatible format. The same bounded fallback supports position repair. This compatibility recovery is separate from the bounded HTTP retries; authentication and unrelated request-validation errors do not trigger a fresh-thread fallback.
+
+For voice practice on Apple Silicon, keep `npm run speech:start` running. In an active debate, choose **Speak argument**, allow microphone access, and choose **Stop recording** when finished. Recording stops automatically after 115 seconds. The local transcription is appended to your draft; review or edit it, then choose **Send argument**. Typed input remains available if microphone access or transcription fails. Microphone access requires localhost or HTTPS and a browser with `MediaRecorder` support.
+
+Transcription defaults to English (`LOCAL_ASR_LANGUAGE=en`). Automatic language detection can miss short English clips; set `LOCAL_ASR_LANGUAGE=auto` only when automatic detection is desired. Choose the input in **Microphone** and check the live level meter while speaking. The app shows the active microphone, recording duration, detected sound and mute warnings. If the meter stays empty, select another input and check its recording volume. Level monitoring is optional and does not block recording in browsers that cannot provide it.
+
+If the assistant's opening or reply fails, you can still speak or type a draft. Choose **Retry opening** or **Retry assistant response** before sending it. Retrying keeps any new or edited draft and reuses the failed turn's original input.
+
+**Read replies aloud** is enabled by default and can be turned off. Each new assistant response is spoken once, including the opening and successful retries. **Replay response** reads an earlier reply; **Stop audio** interrupts generation or playback. If the browser blocks autoplay, **Play audio** starts the prepared passage without generating it again. Long responses are read as short passages in order. Starting a recording interrupts playback, and ending or replacing a debate, leaving the debate screen, or closing the page cancels active voice work. Restoring a debate after reload does not read its existing history automatically. Speech failures do not discard the debate transcript or typed draft.
 
 The Practice model picker offers these five models, in this order, when their exact IDs are returned by the configured endpoint's authenticated `/models` API:
 
@@ -160,6 +172,10 @@ The backend uses the Codex SDK with the same provider configuration as the debat
 
 After reviewing the source, build or update the speaker persona. Sources with the same normalized speaker name are analyzed together. The generated persona is saved under `data/persona-<uuid>/` as `persona.md` with `persona.json` metadata. Existing sources remain available for review; they do not become practice opponents until a persona is compiled. The persona can be inspected and downloaded from the library.
 
+On Apple Silicon, [local speech](doc/local-speech.md) uses SGLang-Omni's native MLX servers for transcription and speech generation. In **Transcript → Paste text**, expand **Transcribe an audio file locally**, choose a clip and review the resulting transcript before generating a record. To hear an excerpt, select up to 600 characters in a saved record and choose **Read selected text aloud**. Run `npm run speech:setup` once and `npm run speech:start` in a separate terminal before using these controls. Speech processing does not require provider credentials. Record analysis still uses the configured provider.
+
+Speech runs as an independent microservice at `http://127.0.0.1:8764`, with a `/health` readiness check. The app proxies its existing speech routes to that service. Other browser frontends can call it directly using an explicit `SPEECH_ALLOWED_ORIGINS` allowlist; see the [frontend API examples](doc/local-speech.md#api-and-validation). `npm run speech:serve` starts the API alone when model workers already run separately.
+
 Each record is checked against the [strict versioned JSON Schema](schema/video-record.schema.json). Extracted quotes must occur verbatim in source cues, in order, and summary references must point to existing remarks. Speaker attribution and summaries still require human review. The [video data index](data/README.md) describes the saved folder format; [the service documentation](doc/video-record-service.md) covers the API, validation and limits.
 
 ## Design documents
@@ -168,6 +184,7 @@ Each record is checked against the [strict versioned JSON Schema](schema/video-r
 - [Behavior specification](doc/spec.md)
 - [Technology stack](doc/tech-stack.md)
 - [Video-record service and API](doc/video-record-service.md)
+- [Local speech on Apple Silicon](doc/local-speech.md)
 - [Judger documentation](doc/judger/README.md)
 
-Complete competition formats, final judging criteria, voice, and browsing archived debates remain in the backlog.
+Complete competition formats, final judging criteria, continuous full-duplex conversation, and browsing archived debates remain in the backlog.

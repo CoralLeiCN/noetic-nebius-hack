@@ -13,6 +13,8 @@ import { ArenaService, type ArenaAction } from "./arena-service.js";
 import { publicError } from "./errors.js";
 import { recordSchema, RecordError } from "./video-record.js";
 import { CodexVideoAnalyzer, VideoService, type CreateVideo } from "./video-service.js";
+import { SpeechServiceClient, type SpeechApi } from "./speech.js";
+import { handleSpeechRequest } from "./speech-http.js";
 import { PersonaService } from "./persona-service.js";
 
 const MAX_BODY = 102 * 1024 * 1024;
@@ -90,13 +92,14 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
   debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model))),
   models = new ModelCatalog(), arenaModels = new ArenaCatalog(),
   arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model)),
-    model => CodexArenaJudge.create(arenaModels.config(model))), personas = new PersonaService(service)) {
+    model => CodexArenaJudge.create(arenaModels.config(model))), personas = new PersonaService(service),
+  speech: SpeechApi = new SpeechServiceClient()) {
   let processing = false;
   const server = createServer(async (request, response) => {
     response.setHeader("x-content-type-options", "nosniff");
     response.setHeader("referrer-policy", "no-referrer");
     response.setHeader("cache-control", "no-store");
-    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    response.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
       const host = request.headers.host;
       if (!host || !/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host)) throw new RecordError(403, "Use the local server address.");
@@ -167,6 +170,9 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
           }
         }
       }
+      if (request.method === "POST" && ["/api/speech/transcriptions", "/api/speech/audio"].includes(url.pathname)) {
+        return await handleSpeechRequest(request, response, url.pathname.endsWith("/transcriptions"), speech);
+      }
       if (request.method === "GET" && url.pathname === "/api/schema") return json(response, 200, recordSchema);
       if (request.method === "GET" && url.pathname === "/api/videos") return json(response, 200, await service.list());
       if (request.method === "POST" && url.pathname === "/api/videos") {
@@ -216,6 +222,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
         "/app.js": ["app.js", "text/javascript; charset=utf-8"],
         "/style.css": ["style.css", "text/css; charset=utf-8"],
         "/debate.js": ["debate.js", "text/javascript; charset=utf-8"],
+        "/debate-speech.js": ["debate-speech.js", "text/javascript; charset=utf-8"],
         "/arena.js": ["arena.js", "text/javascript; charset=utf-8"],
       };
       const asset = Object.hasOwn(assets, url.pathname) ? assets[url.pathname] : undefined;

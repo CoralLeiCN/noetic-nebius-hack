@@ -62,14 +62,21 @@ test("incompatible Responses endpoint fails clearly without content retries", { 
 
 test("SDK failure rebuilds practice history from confirmed messages on retry", { timeout: 60_000 }, async () => {
   const fixture = await providerFixture((_request, index) => index === 0 ? JSON.stringify(POSITIONS) :
-    index === 2 ? { status: 503, body: '{"error":{"message":"unavailable"}}' } : `Argument ${index}`);
+    index >= 2 && index <= 4 ? { status: 503, body: '{"error":{"message":"unavailable"}}' } : `Argument ${index}`);
   const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
   try {
     const session = new DebateSession(agent);
     await session.prepare("AI");
     await session.choose("negative");
     const oldThread = agent.threadIds.practice;
-    await assert.rejects(session.respond("My learning argument"));
+    await assert.rejects(session.respond("My learning argument"), error => {
+      assert.match(publicError(error), /provider is temporarily unavailable/);
+      assert.doesNotMatch(publicError(error), /fixture-secret|unavailable\"/);
+      return true;
+    });
+    assert.equal(fixture.requests.length, 5, "a persistent 503 gets exactly three HTTP attempts");
+    assert.equal(session.snapshot.messages.length, 1);
+    assert.deepEqual(session.snapshot.pending, { kind: "reply", contribution: "My learning argument" });
     assert.equal(agent.threadIds.practice, null);
     await session.retry();
     assert.notEqual(agent.threadIds.practice, oldThread);
@@ -79,6 +86,33 @@ test("SDK failure rebuilds practice history from confirmed messages on retry", {
     assert.match(input, /Argument 1/);
     assert.match(input, /humanSide.*negative/);
   } finally { await agent.dispose(); await fixture.close(); }
+});
+
+test("actual SDK recovers a transient provider 503 within the same request", { timeout: 60_000 }, async () => {
+  const fixture = await providerFixture((_request, index) => index === 0
+    ? { status: 503, body: '{"error":{"message":"temporary unavailability"}}' }
+    : JSON.stringify(POSITIONS));
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
+  try {
+    assert.deepEqual(await agent.prepare("AI", new AbortController().signal), POSITIONS);
+    assert.equal(fixture.requests.length, 2);
+    assert.deepEqual(fixture.requests[0]?.body, fixture.requests[1]?.body);
+  } finally { await agent.dispose(); await fixture.close(); }
+});
+
+test("aborting generation stops unavailable-provider retries", { timeout: 60_000 }, async () => {
+  const controller = new AbortController();
+  let cancel: ReturnType<typeof setTimeout> | undefined;
+  const fixture = await providerFixture(() => {
+    cancel ??= setTimeout(() => controller.abort(new Error("Canceled test generation")), 25);
+    return { status: 503, body: '{"error":{"message":"temporary unavailability"}}' };
+  });
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
+  try {
+    await assert.rejects(agent.prepare("AI", controller.signal));
+    assert.equal(controller.signal.aborted, true);
+    assert.equal(fixture.requests.length, 1);
+  } finally { clearTimeout(cancel); await agent.dispose(); await fixture.close(); }
 });
 
 test("actual SDK authentication failures are sanitized with no provider fallback", { timeout: 60_000 }, async () => {
@@ -91,5 +125,59 @@ test("actual SDK authentication failures are sanitized with no provider fallback
       return true;
     });
     assert.equal(fixture.requests.length, 1);
+  } finally { await agent.dispose(); await fixture.close(); }
+});
+
+test("Responses history validation falls back once to confirmed transcript and keeps subsequent turns compatible", { timeout: 60_000 }, async () => {
+  const fixture = await providerFixture((_request, index) => index === 0 ? JSON.stringify(POSITIONS) :
+    index === 2 ? { status: 400, body: JSON.stringify({ error: { message: "ChatCompletionRequest validation: output_text should be a valid string; fixture-secret" } }) } : `Argument ${index}`);
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
+  try {
+    const session = new DebateSession(agent);
+    await session.prepare("AI");
+    await session.choose("affirmative");
+    await session.respond("First learning benefit");
+    await session.respond("Second learning benefit");
+    assert.equal(fixture.requests.length, 5);
+    assert.equal(session.snapshot.messages.length, 5);
+    for (const index of [3, 4]) {
+      const input = JSON.stringify(fixture.requests[index]?.body.input);
+      assert.match(input, /Argument 1/);
+      assert.equal(input.match(/First learning benefit/g)?.length, 1);
+      assert.doesNotMatch(input, /fixture-secret/);
+      const messages = fixture.requests[index]!.body.input as { role?: string }[];
+      assert.equal(messages.some(message => message.role === "assistant"), false);
+    }
+    assert.match(JSON.stringify(fixture.requests[4]?.body.input), /Argument 3/);
+    assert.equal(JSON.stringify(fixture.requests[4]?.body.input).match(/Second learning benefit/g)?.length, 1);
+  } finally { await agent.dispose(); await fixture.close(); }
+});
+
+test("history compatibility fallback is bounded when a fresh request also fails", { timeout: 60_000 }, async () => {
+  const fixture = await providerFixture((_request, index) => index === 0 ? JSON.stringify(POSITIONS) : index === 1 ? "Opening" :
+    { status: 400, body: JSON.stringify({ error: { message: "ChatCompletionRequest validation output_text" } }) });
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
+  try {
+    const session = new DebateSession(agent);
+    await session.prepare("AI"); await session.choose("affirmative");
+    await assert.rejects(session.respond("My point"));
+    assert.equal(fixture.requests.length, 4);
+    assert.equal(session.snapshot.messages.length, 1);
+    assert.equal(session.snapshot.pending?.kind, "reply");
+  } finally { await agent.dispose(); await fixture.close(); }
+});
+
+test("position content repair tolerates a gateway that rejects resumed Responses history", { timeout: 60_000 }, async () => {
+  const fixture = await providerFixture((_request, index) => index === 0 ? "Invalid position output" : index === 1 ?
+    { status: 400, body: JSON.stringify({ error: { message: "ChatCompletionRequest validation output_text" } }) } : JSON.stringify(POSITIONS));
+  const agent = await CodexDebateAgent.create({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret", model: "fixture-model" });
+  try {
+    assert.deepEqual(await agent.prepare("AI", new AbortController().signal), POSITIONS);
+    assert.equal(fixture.requests.length, 3);
+    const input = JSON.stringify(fixture.requests[2]?.body.input);
+    assert.match(input, /Topic data.*AI/);
+    assert.match(input, /Invalid position output/);
+    assert.match(input, /Repair the prior output/);
+    assert.equal((fixture.requests[2]!.body.input as {role?:string}[]).some(message => message.role === "assistant"), false);
   } finally { await agent.dispose(); await fixture.close(); }
 });

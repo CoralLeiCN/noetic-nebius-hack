@@ -46,7 +46,7 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
   const { root, service, record, persona } = await sources();
   const modelIds = ["deepseek-ai/DeepSeek-V4.1-Flash-1017", "MiniMaxAI/MiniMax-M3.1-Flash"];
   const fixture = await providerFixture((request, index) => JSON.stringify(request.body.input).includes("Create one debate motion") ? JSON.stringify(POSITIONS) :
-    index === 2 ? { status: 503, body: "fixture-secret provider failure" } : `Argument ${index}`, modelIds);
+    index >= 2 && index <= 4 ? { status: 503, body: "fixture-secret provider failure" } : `Argument ${index}`, modelIds);
   const provider = () => ({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret" });
   const debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig({ NEBIUS_BASE_URL: fixture.baseUrl, NEBIUS_API_KEY: "fixture-secret" }, model)));
   const web = await listening(service, debates, new ModelCatalog(provider, () => undefined));
@@ -78,13 +78,14 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     assert.doesNotMatch(failure.error, /fixture-secret/);
     assert.equal(failure.session.messages.length, 1);
     assert.equal(failure.session.pending?.kind, "reply");
+    assert.equal(fixture.requests.length, 5);
     assert.equal((await web.post(route + "/respond", { contribution: "duplicate" })).status, 409);
     const retry = await (await web.post(route + "/retry")).json() as Snapshot;
     assert.deepEqual(retry.messages.map(message => message.role), ["assistant", "human", "assistant"]);
     assert.equal(retry.messages[1]?.text, "AI helps everyone learn.");
     const next = await (await web.post(route + "/respond", { contribution: "What about personalized learning?" })).json() as Snapshot;
     assert.equal(next.messages.length, 5);
-    const retryInput = JSON.stringify(fixture.requests[3]?.body.input);
+    const retryInput = JSON.stringify(fixture.requests[5]?.body.input);
     assert.match(retryInput, /Prefer concrete accessible vocabulary/);
     assert.match(retryInput, /personaId/);
     assert.doesNotMatch(retryInput, /Education should help everyone learn|remarkIndexes/);
@@ -98,6 +99,9 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     const crossOrigin = await fetch(web.base + "/api/debates", { method: "POST", headers: { origin: "https://example.com" } });
     assert.equal(crossOrigin.status, 403);
     assert.equal((await fetch(web.base + "/debate.js")).status, 200);
+    const speechModule = await fetch(web.base + "/debate-speech.js");
+    assert.equal(speechModule.status, 200);
+    assert.match(speechModule.headers.get("content-type") ?? "", /text\/javascript/);
     assert.ok(fixture.requests.every(request => request.body.model === modelIds[0]));
     const miniMax = await (await web.post("/api/debates", { speakerId: persona.id, model: modelIds[1] })).json() as Snapshot;
     assert.equal(miniMax.model?.family, "MiniMax");
