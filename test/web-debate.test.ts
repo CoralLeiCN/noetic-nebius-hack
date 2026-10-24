@@ -155,5 +155,11 @@ test("practice context contains only the compiled persona and identity", async (
       personaId: persona.id, name: "Alex", personaMarkdown: persona.markdown,
     });
     assert.doesNotMatch(JSON.stringify(speakerContext(persona)), /Education should help everyone learn|remarkIndexes|transcript/);
+    const prompt = speakerContext(persona).personaMarkdown;
+    assert.match(prompt, /Prefer concrete accessible vocabulary/);
+    assert.doesNotMatch(prompt, /Confidence:|Observed pattern:|Evidence references:|Source provenance|SHA-256/);
+    assert.ok(!prompt.includes(persona.sourceIds[0]!));
+    assert.ok(!prompt.includes(persona.analysis.dimensions[0]!.observation));
+    assert.ok(!prompt.includes(persona.analysis.limitations[0]!));
   } finally { await rm(root, { recursive: true, force: true }); }
 });

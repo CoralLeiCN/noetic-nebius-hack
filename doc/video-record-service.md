@@ -16,6 +16,8 @@ The source library supports record selection, summaries with links to supporting
 
 Source records are training material for a reusable speaker persona. They are not passed directly into practice. After reviewing a source record, build or update the speaker persona in the library. All validated records matching the same normalized speaker name contribute to the compilation. Consistent naming groups a speaker's sources; different people must use distinct names.
 
+The canonical generator prompt is `PERSONA_GENERATION_PROMPT` in [`src/prompts/persona-generation.ts`](../src/prompts/persona-generation.ts), imported by `CodexPersonaAnalyzer` in `src/persona-service.ts`. Change generation requirements in that prompt file. It explicitly requires each dimension's `guidance` to be concise second-person instructions ready for the debate agent, with observations, evidence, confidence and research limitations confined to their separate analysis fields.
+
 The compiler uses the official Codex SDK and the existing ChatGPT OAuth login associated with `CODEX_HOME` (default `~/.codex`). Sign in with `codex -c 'cli_auth_credentials_store="file"' login` before building a persona. The compiler requires a file-backed OAuth login; an API-key or keyring-only login is not used. `CODEX_PERSONA_MODEL` optionally selects the compiler model; otherwise Codex uses its default. Persona compilation does not use the Nebius credentials or fall back to the source-extraction provider. It uses isolated task configuration and history, with tools disabled. See [Codex authentication](https://learn.chatgpt.com/docs/auth).
 
 The persona covers these dimensions:
@@ -31,13 +33,13 @@ The persona covers these dimensions:
 | Interaction and rebuttal | Responses to challenges, concessions, reframing and questions. |
 | Uncertainty and expressed values | Qualification, confidence, recurring priorities and limits of the available evidence. |
 
-Each dimension records an observation, guidance for practice, confidence (`high`, `medium`, `low` or `unknown`) and supporting evidence. Evidence quotes are checked against saved remarks; the Markdown carries source references rather than raw source passages. Insufficient evidence stays explicit. Transcript-derived observations do not establish acoustic voice characteristics or justify invented beliefs. The saved Markdown describes a simulation and keeps new debate arguments separate from the person's actual statements.
+Each dimension records an observation, guidance for practice, confidence (`high`, `medium`, `low` or `unknown`) and supporting evidence in `persona.json`. Evidence quotes are checked against saved remarks. Observations, confidence, evidence, limitations and source provenance stay in that tracing file. `persona.md` contains only direct instructions for the debate agent, without the tracing analysis. Insufficient evidence stays explicit in the analysis and calls for neutral practice behavior. Transcript-derived observations do not establish acoustic voice characteristics or justify invented beliefs. The saved Markdown instructs the agent to act as a simulation and keep new debate arguments separate from the person's actual statements.
 
 Persona analysis accepts at most 120,000 serialized characters of source input. Larger inputs fail explicitly without truncation. Compiled Markdown is limited to 48,000 characters; an oversized result is rejected without publication. Only one persona compilation runs at a time; another build request returns 429.
 
-Compilation saves `persona.md` and `persona.json` under `data/persona-<uuid>/`. The library lets the human inspect and download the Markdown. Compilation supplies prompt context rather than fine-tuning model weights. Updating source material does not update a persona automatically: rebuild the persona and start a new debate to use the new version.
+Compilation saves `persona.md` and `persona.json` under `data/persona-<uuid>/`. The library lets the human inspect and download the Markdown. Compilation supplies prompt context rather than fine-tuning model weights. Updating source material does not update a persona automatically: rebuild the persona and start a new debate to use the new version. Previously saved personas also require a rebuild to adopt the instruction-only Markdown format.
 
-Practice reads only the saved persona Markdown as speaker context, identified by `personaId`. Source remarks, transcripts and summaries stay in the library. The current debate keeps its copied persona even if another version is compiled.
+Practice reads only the saved persona Markdown as speaker context, identified by `personaId`. Source remarks, transcripts, summaries and the tracing analysis stay in the library. The current debate keeps its copied persona even if another version is compiled.
 
 ## Codex integration
 

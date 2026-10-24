@@ -12,9 +12,9 @@ Help a human practice debating a topic against an assistant that maintains an op
 
 The source library collects video references and supplied transcripts. After extracting and validating a named speaker's remarks, use the Codex SDK with the existing ChatGPT OAuth login to analyze all saved records matching that normalized speaker name. Save the result as `data/persona-<uuid>/persona.md`, with metadata in `persona.json`. This compilation creates reusable prompt context; it does not fine-tune a model.
 
-The persona describes language and vocabulary preferences, sentence rhythm, tone and register, rhetorical devices, argument structure, evidence use, interaction and rebuttal habits, and treatment of uncertainty and values. Ground observations in source evidence, record confidence and limitations, and mark dimensions that the sources cannot establish. Do not infer acoustic voice characteristics from transcripts or invent the speaker's views on unrelated topics.
+The persona gives direct agent instructions for language and vocabulary preferences, sentence rhythm, tone and register, rhetorical devices, argument structure, evidence use, interaction and rebuttal habits, and treatment of uncertainty and values. Keep observations, source evidence, confidence, limitations and provenance in `persona.json` for tracing, separate from the instruction-only `persona.md`. Mark dimensions that the sources cannot establish in the analysis and use neutral practice behavior for them. Do not infer acoustic voice characteristics from transcripts or invent the speaker's views on unrelated topics.
 
-The human can inspect and download the Markdown before practice. Adding sources does not silently change a persona: rebuild it, then start a new debate to use the new version. Practice receives only the saved persona as speaker context.
+The human can inspect and download the Markdown before practice. Adding sources does not silently change a persona: rebuild it, then start a new debate to use the new version. Previously saved personas require a rebuild to adopt the instruction-only format. Practice receives only the saved persona as speaker context.
 
 ## Core workflow
 
@@ -59,7 +59,7 @@ The web app first selects a compiled speaker persona alongside the topic. The sp
 
 The human also chooses a model from the configured provider's live model list, limited to DeepSeek V4.1 Flash 1017, MiniMax-M3.1-Flash, Nemotron-3.5-Lightning, Gemma-4-31B-it and Qwen3.8-27B, in that order. Only exact model IDs returned by the provider are offered; see the [model ID table](../README.md#web-debate-practice). An available `NEBIUS_MODEL` within this selection is the default; otherwise the first available choice is selected. The server caches discovery for five minutes and validates the selection before creating an agent. The same model is used for all session actions and restored with the session snapshot. Choosing a model in the web app requires only the provider base URL and API key; it does not require `NEBIUS_MODEL`.
 
-The opponent is explicitly labeled as a simulation. Its prompt includes the saved persona Markdown, with guidance on communication patterns, confidence and limitations. Raw source remarks, transcripts and summaries are excluded from practice context. The model must not present generated arguments as the real speaker's statements or fabricate their position on an unrelated topic. The assigned side is a practice role. The interface displays both assignments and identifies the compiled persona.
+The opponent is explicitly labeled as a simulation. Its prompt includes the saved persona Markdown, with direct instructions on communication patterns and practice behavior. Observations, confidence, evidence, source provenance, raw source remarks, transcripts and summaries are excluded from practice context. The model must not present generated arguments as the real speaker's statements or fabricate their position on an unrelated topic. The assigned side is a practice role. The interface displays both assignments and identifies the compiled persona.
 
 The web interface supports position regeneration, side selection, completed messages, failed-generation retries and ending during generation. Changing the topic or persona starts a new debate. Refreshing the page restores the current session by ID while the server still holds it. Sessions expire after one hour of inactivity; server restart clears them.
 
@@ -118,7 +118,7 @@ The standalone [technology document](tech-stack.md) describes the implementation
 7. A Nebius integration check completes position generation, an opening, and at least two follow-up turns through the Codex SDK.
 8. Changing the configured base URL routes model requests to the new compatible endpoint without code changes or fallback to another provider.
 9. Missing configuration and authentication or protocol errors produce useful messages without exposing secrets.
-10. Source records compile into a Markdown persona with evidence, confidence and source limitations.
+10. Source records compile into direct agent instructions in `persona.md`, with observations, evidence, confidence, limitations and source provenance retained separately in `persona.json`.
 11. Web practice requires a compiled persona and passes its saved Markdown, without raw source records, to the opponent.
 12. Multiple saved source records for the same normalized speaker name contribute to one compiled persona; rebuilding affects new sessions only.
 13. Persona compilation requires Codex ChatGPT OAuth and does not fall back to Nebius or an API-key login.
