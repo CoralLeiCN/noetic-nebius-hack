@@ -90,10 +90,15 @@ test("Arena API compares providers through the Practice SDK path and retries onl
       assert.doesNotMatch(input, /Learning should be accessible/);
       assert.match(input, /Present two or three distinct opening arguments/);
       assert.match(input, /simulated debate opponent/);
+      assert.match(input, /# Persona: Direct parliamentary debater/);
+      assert.match(input, /Word budget: at most 250 words/);
+      assert.doesNotMatch(input, /\{SOURCE_EXCERPTS\}/);
     }
     const rebuilt = JSON.stringify(second.requests[4]?.body.input);
     assert.match(rebuilt, /assistantSide.*negative/);
     assert.match(rebuilt, /messages/);
+    assert.match(rebuilt, /# Persona: Direct parliamentary debater/);
+    assert.match(rebuilt, /Word budget: at most 180 words/);
     const judgeFailure = await post(route + "/judge"); assert.equal(judgeFailure.status, 502);
     assert.equal((await judgeFailure.json()).session.judgment, null);
     const scored = await (await post(route + "/retry")).json() as ArenaSnapshot;
@@ -101,6 +106,9 @@ test("Arena API compares providers through the Practice SDK path and retries onl
     assert.equal(scored.judgment?.scores.affirmative, 78);
     assert.equal(scored.judgment?.provisional, true);
     assert.equal(scored.judgment?.criteria, ARENA_CRITERIA);
+    for (const request of second.requests.filter(request => request.body.model === "judge-model")) {
+      assert.doesNotMatch(JSON.stringify(request.body.input), /# Persona: Direct parliamentary debater|TASK: SPEECH/);
+    }
     assert.ok(first.requests.every(request => request.headers.authorization === "Bearer secret-a" && request.body.model === "model-a"));
     assert.ok(second.requests.every(request => request.headers.authorization === "Bearer secret-b"));
     assert.equal((await (await fetch(base + route)).json()).messages.length, 4);

@@ -31,6 +31,21 @@ test("real Codex SDK routes preparation and contextual practice to a custom Resp
       assert.doesNotMatch(JSON.stringify(request.body.input), /Available skills/);
     }
     const finalInput = JSON.stringify(fixture.requests.at(-1)?.body.input);
+    assert.doesNotMatch(JSON.stringify(fixture.requests[0]?.body.input), /# Persona: Direct parliamentary debater|TASK: SPEECH/);
+    for (const request of fixture.requests.slice(1)) {
+      const input = JSON.stringify(request.body.input);
+      assert.match(input, /# Persona: Direct parliamentary debater/);
+      assert.match(input, /How to build a speech/);
+      assert.match(input, /TASK: SPEECH/);
+      assert.match(input, /None supplied\. Use the style guidance above/);
+      assert.doesNotMatch(input, /\{SOURCE_EXCERPTS\}/);
+      assert.match(input, /parliamentary style and its guardrails take priority/);
+    }
+    const openingInput = JSON.stringify(fixture.requests[1]?.body.input);
+    assert.match(openingInput, /Speech name: negative opening speech/);
+    assert.match(openingInput, /Word budget: at most 250 words/);
+    assert.match(finalInput, /Speech name: negative rebuttal \/ POI answer/);
+    assert.match(finalInput, /Word budget: at most 180 words/);
     assert.match(finalInput, /AI helps students learn/);
     assert.match(finalInput, /Assistant argument 1/);
     assert.match(finalInput, /assistantSide.*negative/);
@@ -45,6 +60,7 @@ test("invalid position output gets only one content repair", { timeout: 60_000 }
     await assert.rejects(agent.prepare("AI", new AbortController().signal), /valid positions/);
     assert.equal(fixture.requests.length, 2);
     assert.match(JSON.stringify(fixture.requests[1]?.body.input), /Repair the prior output/);
+    assert.doesNotMatch(JSON.stringify(fixture.requests), /# Persona: Direct parliamentary debater|TASK: SPEECH/);
   } finally { await agent.dispose(); await fixture.close(); }
 });
 
@@ -85,6 +101,9 @@ test("SDK failure rebuilds practice history from confirmed messages on retry", {
     assert.equal(input.match(/My learning argument/g)?.length, 1);
     assert.match(input, /Argument 1/);
     assert.match(input, /humanSide.*negative/);
+    assert.match(input, /# Persona: Direct parliamentary debater/);
+    assert.match(input, /Speech name: affirmative rebuttal \/ POI answer/);
+    assert.doesNotMatch(input, /\{SOURCE_EXCERPTS\}/);
   } finally { await agent.dispose(); await fixture.close(); }
 });
 
@@ -145,6 +164,9 @@ test("Responses history validation falls back once to confirmed transcript and k
       assert.match(input, /Argument 1/);
       assert.equal(input.match(/First learning benefit/g)?.length, 1);
       assert.doesNotMatch(input, /fixture-secret/);
+      assert.match(input, /# Persona: Direct parliamentary debater/);
+      assert.match(input, /Word budget: at most 180 words/);
+      assert.doesNotMatch(input, /\{SOURCE_EXCERPTS\}/);
       const messages = fixture.requests[index]!.body.input as { role?: string }[];
       assert.equal(messages.some(message => message.role === "assistant"), false);
     }
