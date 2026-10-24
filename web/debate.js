@@ -83,7 +83,7 @@
     const options = [...models];
     if (session?.model && !options.some(model => model.id === chosen)) options.push(session.model);
     select.replaceChildren();
-    for (const family of ["DeepSeek", "MiniMax", "Configured"]) {
+    for (const family of new Set(options.map(model => model.family))) {
       const group = node("optgroup"); group.label = family;
       for (const model of options.filter(model => model.family === family)) {
         const option = node("option", model.name); option.value = model.id; group.append(option);
@@ -106,7 +106,7 @@
     try {
       const catalog = await request("/api/models");
       models = catalog.models; defaultModel = catalog.defaultModel || "";
-      if (!models.length) throw new Error("No DeepSeek or MiniMax models are available from the configured provider.");
+      if (!models.length) throw new Error("None of the selected practice models are available from the configured provider.");
     } catch (failure) {
       models = [];
       $("model-error").textContent = `Could not load models. ${failure.message}`;

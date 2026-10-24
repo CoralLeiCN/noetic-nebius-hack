@@ -81,7 +81,17 @@ npm run start:web
 
 Open [debate practice](http://127.0.0.1:3000). First build a speaker persona in **Source library**. Enter a topic, choose a compiled speaker persona and a debate model, and select **Prepare debate**. Review the two positions, then take either side to start the opponent's opening. Send arguments or questions to continue. Regenerate positions before choosing a side, retry failed generations, or end the debate at any time. Starting a new debate lets you change the topic, speaker or model. **Source library** opens the source records and persona tools. Build or update a persona from the speaker's saved sources, review its Markdown, then select **Practice with this persona**.
 
-The model picker groups DeepSeek and MiniMax models returned by the configured endpoint's authenticated `/models` API. If `NEBIUS_MODEL` is configured and returned by that endpoint, it is also offered and selected by default. Otherwise the first available choice is selected. Model lists are cached on the server for five minutes; **Refresh models** retries discovery after a failure. A selected model is fixed for preparation, opening arguments and every subsequent turn, including retries. Model availability in the list does not certify compatibility with the pinned Codex runtime; generation errors remain visible and no other model is used automatically. Nebius publishes its [API reference](https://api.tokenfactory.nebius.com/docs) and [current model catalog](https://tokenfactory.nebius.com/api/public/models_info).
+The Practice model picker offers these five models, in this order, when their exact IDs are returned by the configured endpoint's authenticated `/models` API:
+
+| Display name | API model ID |
+| --- | --- |
+| DeepSeek V4.1 Flash 1017 | `deepseek-ai/DeepSeek-V4.1-Flash-1017` |
+| MiniMax-M3.1-Flash | `MiniMaxAI/MiniMax-M3.1-Flash` |
+| Nemotron-3.5-Lightning | `nvidia/Nemotron-3_5-Lightning` |
+| Gemma-4-31B-it | `google/gemma-4-31B-it` |
+| Qwen3.8-27B | `Qwen/Qwen3.8-27B` |
+
+If `NEBIUS_MODEL` matches an available choice above, it is selected by default. Otherwise the first available choice is selected. Unavailable models are omitted, and configuring a different default does not add it to the Practice picker. Model lists are cached on the server for five minutes; **Refresh models** retries discovery after a failure. A selected model is fixed for preparation, opening arguments and every subsequent turn, including retries. Model availability in the list does not certify compatibility with the pinned Codex runtime; generation errors remain visible and no other model is used automatically. Nebius publishes its [API reference](https://api.tokenfactory.nebius.com/docs) and [current model catalog](https://tokenfactory.nebius.com/api/public/models_info). Google's [Gemma model card](https://huggingface.co/google/gemma-4-31B-it) identifies its model ID; the configured endpoint must also serve it before it can be selected.
 
 A ready speaker has a compiled persona Markdown file. The compiler analyzes all saved, validated source records matching the speaker name and distills vocabulary and language preferences, sentence patterns, tone and register, rhetorical devices, argument structure, evidence use, rebuttal habits, and treatment of uncertainty and values. Observations carry source evidence, confidence and limitations. This is persona compilation for prompting, rather than model fine-tuning.
 
