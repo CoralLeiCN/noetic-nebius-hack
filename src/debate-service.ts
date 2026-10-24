@@ -1,28 +1,16 @@
 import { DebateSession, type DebateAgent, type Snapshot, type SpeakerContext } from "./debate.js";
-import { RecordError, type VideoRecord } from "./video-record.js";
+import { RecordError } from "./video-record.js";
 import type { VideoService } from "./video-service.js";
 import type { ModelOption } from "./models.js";
+import { PersonaService, type Persona } from "./persona-service.js";
 
 export interface ManagedDebateAgent extends DebateAgent { dispose(): Promise<void> }
 type Entry = { session: DebateSession; agent: ManagedDebateAgent; touched: number; running: Promise<void> | null; disposal?: Promise<void> };
 export type DebateAction = "prepare" | "choose" | "respond" | "retry" | "end";
 
-/** Keep complete, verbatim remarks within a bounded model context. */
-export function speakerContext(record: VideoRecord): SpeakerContext {
-  const remarks: SpeakerContext["remarks"] = [];
-  let remaining = 24_000;
-  for (const remark of record.analysis.remarks) {
-    const cost = JSON.stringify(remark).length;
-    if (cost > remaining) continue;
-    remarks.push({ ...remark, startSeconds: record.transcript.cues[remark.cueId - 1]!.startSeconds });
-    remaining -= cost;
-  }
-  return {
-    recordId: record.id, name: record.speakerName, title: record.title, remarks,
-    totalRemarks: record.analysis.remarks.length,
-    excerpted: remarks.length < record.analysis.remarks.length,
-    limitations: ["Supplied captions; not verified against audio.", ...record.analysis.limitations],
-  };
+/** Practice receives only the saved persona Markdown, never training records. */
+export function speakerContext(persona: Persona): SpeakerContext {
+  return { personaId: persona.id, name: persona.speakerName, personaMarkdown: persona.markdown };
 }
 
 export class DebateService {
@@ -30,7 +18,10 @@ export class DebateService {
   private creating = 0;
   private closed = false;
   private readonly expiry = setInterval(() => { void this.expire().catch(() => {}); }, 60_000).unref();
-  constructor(private readonly videos: VideoService, private readonly createAgent: (model?: string) => Promise<ManagedDebateAgent>) {}
+  private readonly personas: PersonaService;
+  constructor(videos: VideoService, private readonly createAgent: (model?: string) => Promise<ManagedDebateAgent>, personas?: PersonaService) {
+    this.personas = personas ?? new PersonaService(videos);
+  }
 
   async create(speakerId: string, model?: ModelOption): Promise<Snapshot> {
     if (this.closed) throw new RecordError(503, "The debate service is shutting down.");
@@ -41,7 +32,7 @@ export class DebateService {
     if (this.sessions.size + this.creating >= 20) throw new RecordError(429, "Too many open debates. End a debate before starting another.");
     this.creating++;
     try {
-      const speaker = speakerContext(await this.videos.get(speakerId));
+      const speaker = speakerContext(await this.personas.get(speakerId));
       const agent = await this.createAgent(model?.id);
       if (this.closed) { await agent.dispose(); throw new RecordError(503, "The debate service is shutting down."); }
       const session = new DebateSession(agent, speaker, model);

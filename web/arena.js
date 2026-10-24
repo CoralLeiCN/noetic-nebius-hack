@@ -53,7 +53,7 @@
       radio.type = "radio"; radio.name = "arena-speaker"; radio.value = speaker.id;
       radio.checked = speaker.id === speakerId; radio.required = true;
       radio.addEventListener("change", () => { speakerId = speaker.id; render(); });
-      const copy = node("span"); copy.append(node("strong", speaker.speakerName), node("small", speaker.title));
+      const copy = node("span"); copy.append(node("strong", speaker.speakerName), node("small", `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
       card.append(radio, copy); $("arena-speaker-options").append(card);
     }
     $("arena-speaker-empty").hidden = Boolean(speakers.length);
@@ -61,13 +61,13 @@
   }
   function updateSpeakers(records) {
     speakers = records;
-    if (!speakers.some(speaker => speaker.id === speakerId)) speakerId = session?.speaker?.recordId || speakers[0]?.id || "";
+    if (!speakers.some(speaker => speaker.id === speakerId)) speakerId = session?.speaker?.personaId || speakers[0]?.id || "";
     renderSpeakers();
   }
   async function loadSpeakers() {
     $("arena-refresh-speakers").disabled = true;
-    try { updateSpeakers(await request("/api/videos")); }
-    catch (failure) { error(`Could not load ready speakers. ${failure.message}`); }
+    try { updateSpeakers(await request("/api/personas")); }
+    catch (failure) { error(`Could not load speaker personas. ${failure.message}`); }
     finally { $("arena-refresh-speakers").disabled = false; }
   }
   function renderModels() {
@@ -144,7 +144,7 @@
     $("arena-prepare").textContent = waiting && !positions ? "Preparing comparison…" : "Prepare comparison ↗";
     for (const role of roles) $(`arena-${role}-model`).disabled = loadingModels || !models.length;
     $("arena-refresh-models").disabled = loadingModels;
-    $("arena-review-source").hidden = !(session?.speaker?.recordId || speakerId);
+    $("arena-review-source").hidden = !(session?.speaker?.personaId || speakerId);
     $("arena-welcome").hidden = Boolean(positions);
     $("arena-detail").hidden = !positions;
     $("arena-badge").textContent = ended ? "ENDED" : uncertain ? "RECONNECT" : judging ? "JUDGING" : waiting ? "GENERATING" : completed ? "SCORED" : session?.status === "awaiting_judgment" ? "READY TO JUDGE" : positions ? "POSITIONS READY" : "SETUP";
@@ -164,9 +164,9 @@
     $("arena-judge").hidden = session?.status !== "awaiting_judgment" || pending || uncertain;
     $("arena-judge").disabled = waiting;
     if (!positions) return;
-    $("arena-speaker-note").textContent = `${session.speaker.name.toUpperCase()} · SOURCE-INFORMED SIMULATIONS`;
+    $("arena-speaker-note").textContent = `${session.speaker.name.toUpperCase()} · PERSONA-GUIDED SIMULATIONS`;
     $("arena-motion").textContent = positions.motion;
-    $("arena-source-note").textContent = `Source: ${session.speaker.title}. Both models receive the same ${session.speaker.remarks.length} of ${session.speaker.totalRemarks} saved remarks.${session.speaker.excerpted ? " This source is excerpted." : ""} Source references appear as [cue N].`;
+    $("arena-source-note").textContent = `Both models receive the same saved persona for ${session.speaker.name}. Original source records stay in the library.`;
     for (const side of sides) {
       $(`arena-${side}-label`).textContent = `${side.toUpperCase()} · ${label(session.models[side])}`;
       $(`arena-${side}-position`).textContent = positions[side];
@@ -256,9 +256,9 @@
   });
   $("arena-review-source").addEventListener("click", () => {
     document.querySelector('[data-screen="library"]').click();
-    document.dispatchEvent(new CustomEvent("review-speaker-source", { detail: session?.speaker?.recordId || speakerId }));
+    document.dispatchEvent(new CustomEvent("review-speaker-persona", { detail: session?.speaker?.personaId || speakerId }));
   });
-  document.addEventListener("speakers-updated", event => updateSpeakers(event.detail));
+  document.addEventListener("personas-updated", event => updateSpeakers(event.detail));
   document.addEventListener("workspace-screen", event => { if (event.detail === "arena" && !initialized) { initialized = true; void initialize(); } });
   async function initialize() {
     let id;
@@ -271,7 +271,7 @@
       busy = true; render();
       try {
         session = await request(`/api/arenas/${encodeURIComponent(id)}`);
-        speakerId = session.speaker.recordId;
+        speakerId = session.speaker.personaId;
         $("arena-topic").value = session.topic || session.pending?.topic || "";
       } catch { session = null; remember(); error("Your previous comparison is no longer available. Start a new one."); }
       finally { busy = false; }

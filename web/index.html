@@ -13,7 +13,7 @@
   <header class="masthead"><a href="/" class="brand" aria-label="Debate home">d<span>.</span></a><span>DEBATE <span class="slash">/</span> PRACTICE ROOM</span><nav class="main-nav" aria-label="Workspace"><button type="button" data-screen="debate" aria-pressed="true">Debate practice</button><button type="button" data-screen="library" aria-pressed="false">Source library</button><button type="button" data-screen="arena" aria-pressed="false">Arena</button></nav></header>
   <main>
     <section id="debate-screen" aria-label="Debate practice">
-      <div class="intro"><p class="eyebrow">FROM SPEAKER TO SPARRING PARTNER</p><h1>Bring a topic.<br><span>Meet your opposition.</span></h1><p>Choose a speaker from your source library, take a side, and put your arguments to the test.</p></div>
+      <div class="intro"><p class="eyebrow">FROM SPEAKER TO SPARRING PARTNER</p><h1>Bring a topic.<br><span>Meet your opposition.</span></h1><p>Choose a speaker persona, take a side, and put your arguments to the test.</p></div>
       <div class="debate-workspace">
         <aside class="debate-setup">
           <form id="debate-form">
@@ -21,9 +21,9 @@
               <div class="panel-heading"><span class="step">01</span><h2>Set the debate</h2></div>
               <label for="debate-topic">What do you want to debate?</label>
               <textarea id="debate-topic" rows="3" maxlength="2000" placeholder="e.g. Should cities make public transport free?" required></textarea>
-              <div class="speaker-heading"><label id="speaker-label">Choose a ready speaker</label><button type="button" id="refresh-speakers" class="text-button">Refresh</button></div>
-              <div id="speaker-options" role="group" aria-labelledby="speaker-label"><p class="hint">Loading speakers…</p></div>
-              <p id="speaker-empty" class="hint" hidden>No speakers are ready yet. Add a source and transcript in the source library to create your first opponent.</p>
+              <div class="speaker-heading"><label id="speaker-label">Choose a speaker persona</label><button type="button" id="refresh-speakers" class="text-button">Refresh</button></div>
+              <div id="speaker-options" role="group" aria-labelledby="speaker-label"><p class="hint">Loading personas…</p></div>
+              <p id="speaker-empty" class="hint" hidden>No personas are ready yet. Add a source and transcript in the source library, then build a speaker persona.</p>
               <div class="speaker-heading"><label for="debate-model">Choose a model</label><button type="button" id="refresh-models" class="text-button">Refresh models</button></div>
               <select id="debate-model" aria-describedby="model-hint" required disabled><option value="">Loading models…</option></select>
               <p id="model-hint" class="hint">DeepSeek and MiniMax models available from your provider. The model stays fixed for this debate.</p>
@@ -31,15 +31,15 @@
               <button type="submit" id="prepare-debate" class="primary">Prepare debate <span aria-hidden="true">↗</span></button>
             </fieldset>
           </form>
-          <button type="button" id="review-debate-source" class="secondary" hidden>Review speaker’s source ↗</button>
-          <button type="button" id="add-speaker" class="text-button add-speaker">+ Add a speaker in the source library</button>
-          <div class="process-note"><span class="dot"></span><p>A simulated opponent informed by saved remarks. New arguments are generated for practice and may differ from the speaker’s actual views.</p></div>
+          <button type="button" id="review-debate-source" class="secondary" hidden>Review speaker persona ↗</button>
+          <button type="button" id="add-speaker" class="text-button add-speaker">+ Build a persona in the source library</button>
+          <div class="process-note"><span class="dot"></span><p>A simulated opponent guided by a saved speaker persona. New arguments are generated for practice and may differ from the speaker’s actual views.</p></div>
         </aside>
         <section class="debate-room" aria-label="Debate room">
           <div class="panel-heading"><span class="step">02</span><h2 id="room-heading">The floor is yours</h2><span id="debate-badge" class="count">SETUP</span></div>
           <p id="debate-error" class="error" role="alert" hidden></p>
           <p id="debate-status" role="status" aria-live="polite"></p>
-          <div id="debate-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>A sharper argument starts with a challenge.</h3><p>Enter a topic and choose a ready speaker. You’ll review two opposing positions and choose your side before the opening argument.</p><span>ONE TOPIC → TWO SIDES → YOUR NEXT ARGUMENT</span></div>
+          <div id="debate-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>A sharper argument starts with a challenge.</h3><p>Enter a topic and choose a speaker persona. You’ll review two opposing positions and choose your side before the opening argument.</p><span>ONE TOPIC → TWO SIDES → YOUR NEXT ARGUMENT</span></div>
           <div id="debate-detail" hidden>
             <p class="eyebrow" id="debate-opponent"></p><h2 id="debate-motion"></h2>
             <p id="debate-model-label" class="hint" hidden></p>
@@ -54,7 +54,7 @@
       </div>
     </section>
     <section id="arena-screen" aria-label="Arena model comparison" hidden>
-      <div class="intro"><p class="eyebrow">SAME DEBATE · DIFFERENT MODELS</p><h1>Put models<br><span>to the test.</span></h1><p>Give two models the same source and debate format. Watch their arguments unfold, then compare a judge’s provisional scores.</p></div>
+      <div class="intro"><p class="eyebrow">SAME DEBATE · DIFFERENT MODELS</p><h1>Put models<br><span>to the test.</span></h1><p>Give two models the same speaker persona and debate format. Watch their arguments unfold, then compare a judge’s provisional scores.</p></div>
       <div class="debate-workspace">
         <aside class="debate-setup">
           <form id="arena-form">
@@ -62,9 +62,9 @@
               <div class="panel-heading"><span class="step">01</span><h2>Set the comparison</h2></div>
               <label for="arena-topic">What do you want to debate?</label>
               <textarea id="arena-topic" rows="3" maxlength="2000" placeholder="e.g. Should cities make public transport free?" required></textarea>
-              <div class="speaker-heading"><label id="arena-speaker-label">Choose a ready speaker</label><button type="button" id="arena-refresh-speakers" class="text-button">Refresh</button></div>
-              <div id="arena-speaker-options" role="group" aria-labelledby="arena-speaker-label"><p class="hint">Loading speakers…</p></div>
-              <p id="arena-speaker-empty" class="hint" hidden>Add a source in the library to give both models the same speaker context.</p>
+              <div class="speaker-heading"><label id="arena-speaker-label">Choose a speaker persona</label><button type="button" id="arena-refresh-speakers" class="text-button">Refresh</button></div>
+              <div id="arena-speaker-options" role="group" aria-labelledby="arena-speaker-label"><p class="hint">Loading personas…</p></div>
+              <p id="arena-speaker-empty" class="hint" hidden>Build a speaker persona in the library to give both models the same communication style and debate habits.</p>
               <div class="speaker-heading"><label for="arena-affirmative-model">Affirmative model</label><button type="button" id="arena-refresh-models" class="text-button">Refresh models</button></div>
               <select id="arena-affirmative-model" class="model-select" required disabled><option value="">Loading models…</option></select>
               <label for="arena-negative-model">Negative model</label>
@@ -76,14 +76,14 @@
               <button type="submit" id="arena-prepare" class="primary">Prepare comparison <span aria-hidden="true">↗</span></button>
             </fieldset>
           </form>
-          <button type="button" id="arena-review-source" class="secondary" hidden>Review speaker’s source ↗</button>
-          <div class="process-note"><span class="dot"></span><p>Generated arguments simulate a speaker using saved remarks. They may differ from the speaker’s actual views.</p></div>
+          <button type="button" id="arena-review-source" class="secondary" hidden>Review speaker persona ↗</button>
+          <div class="process-note"><span class="dot"></span><p>Generated arguments follow a saved speaker persona. They may differ from the speaker’s actual views.</p></div>
         </aside>
         <section class="debate-room" aria-label="Arena room">
           <div class="panel-heading"><span class="step">02</span><h2>Model arena</h2><span id="arena-badge" class="count">SETUP</span></div>
           <p id="arena-error" class="error" role="alert" hidden></p>
           <p id="arena-status" class="arena-status" role="status" aria-live="polite"></p>
-          <div id="arena-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>One source. Two models. A fairer comparison.</h3><p>Choose your models and topic. Review the opposing positions, run the debate, and ask a judge to compare the arguments.</p><span>PREPARE → DEBATE → EVALUATE</span></div>
+          <div id="arena-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>One persona. Two models. A fairer comparison.</h3><p>Choose your models and topic. Review the opposing positions, run the debate, and ask a judge to compare the arguments.</p><span>PREPARE → DEBATE → EVALUATE</span></div>
           <div id="arena-detail" hidden>
             <p id="arena-speaker-note" class="eyebrow"></p><h2 id="arena-motion"></h2>
             <p id="arena-source-note" class="hint"></p>
@@ -104,7 +104,7 @@
       </div>
     </section>
     <section id="library-screen" aria-label="Source library" hidden>
-    <div class="intro"><p class="eyebrow">FROM SOURCE TO SPEAKER</p><h1>Keep the words.<br><span>Find the argument.</span></h1><p>A source, a transcript, a speaker. Build a traceable record of what was said and what it means.</p></div>
+    <div class="intro"><p class="eyebrow">FROM SOURCE TO SPEAKER</p><h1>Keep the words.<br><span>Find the argument.</span></h1><p>Add sources and transcripts, then build a speaker persona for practice: their vocabulary, speaking style and debate habits.</p></div>
     <div class="workspace">
       <aside class="upload-panel">
         <div class="panel-heading"><span class="step">01</span><h2>Add a video record</h2></div>
@@ -163,7 +163,13 @@
         <div id="empty" class="empty"><div class="empty-mark" aria-hidden="true">“</div><h3>A good argument starts with a source.</h3><p>Add your first video record to see the original transcript, the speaker’s remarks and a linked summary here.</p><span>ORIGINAL WORDS → CLEARER CONTEXT</span></div>
         <article id="record-view" hidden>
           <p class="eyebrow" id="record-speaker"></p><h2 id="record-title"></h2>
-          <button id="debate-this-speaker" type="button" class="secondary">Debate this speaker →</button>
+          <div class="persona-actions">
+            <button id="build-persona" type="button" class="primary">Build speaker persona</button>
+            <button id="debate-this-speaker" type="button" class="secondary" disabled>Practice with this persona →</button>
+          </div>
+          <p class="hint">Build a persona from all saved sources for this speaker. Rebuild after adding sources. Persona analysis uses your Codex ChatGPT sign-in.</p>
+          <p id="persona-status" role="status" aria-live="polite"></p>
+          <p id="persona-error" class="error" role="alert" hidden></p>
           <div id="sources" class="sources"></div>
           <video id="player" controls preload="metadata" hidden></video>
           <div class="view-tabs" role="group" aria-label="Record sections">
@@ -171,6 +177,7 @@
             <button type="button" data-view="remarks" aria-pressed="false">Speaker remarks</button>
             <button type="button" data-view="transcript" aria-pressed="false">Full transcript</button>
             <button type="button" data-view="record" aria-pressed="false">Structured data</button>
+            <button type="button" data-view="persona" aria-pressed="false">Speaker persona</button>
           </div>
           <div id="record-content" aria-live="polite"></div>
           <a id="download" class="download" download>Download this section ↓</a>

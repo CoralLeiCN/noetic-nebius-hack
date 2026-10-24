@@ -13,7 +13,8 @@ import type { PracticeContext } from "../src/debate.js";
 import { createVideoServer } from "../src/server.js";
 import { VideoService } from "../src/video-service.js";
 import { ModelCatalog } from "../src/models.js";
-import { POSITIONS, providerFixture } from "./fixture.js";
+import { PersonaService } from "../src/persona-service.js";
+import { POSITIONS, providerFixture, personaAnalysis } from "./fixture.js";
 
 async function sources() {
   const root = await mkdtemp(join(tmpdir(), "arena-test-"));
@@ -23,11 +24,13 @@ async function sources() {
   }) });
   const record = await videos.create({ title: "Education", speakerName: "Alex", sourceUrls: ["https://example.com/education"],
     transcript: Buffer.from("0:03 Learning should be accessible."), video: null }, new AbortController().signal);
-  return { root, videos, record };
+  const personas = new PersonaService(videos, { analyze: async (_name, records) => personaAnalysis(records) });
+  const persona = await personas.create(record.speakerName, new AbortController().signal);
+  return { root, videos, record, persona };
 }
 
 test("Arena API compares providers through the Practice SDK path and retries only failed work", { timeout: 90_000 }, async () => {
-  const { root, videos, record } = await sources();
+  const { root, videos, record, persona } = await sources();
   let failReply = true;
   let failJudge = true;
   const first = await providerFixture((request, index) => JSON.stringify(request.body.input).includes("Create one debate motion")
@@ -57,7 +60,8 @@ test("Arena API compares providers through the Practice SDK path and retries onl
     const choices = await (await fetch(base + "/api/arena/models")).json();
     assert.equal(choices.models.length, 3);
     assert.doesNotMatch(JSON.stringify(choices), /secret-|baseUrl|apiKey/);
-    const setup = { speakerId: record.id, affirmativeModel: "first:model-a", negativeModel: "second:model-b", judgeModel: "second:judge-model" };
+    assert.equal((await post("/api/arenas", { speakerId: record.id, affirmativeModel: "first:model-a", negativeModel: "second:model-b", judgeModel: "second:judge-model" })).status, 404);
+    const setup = { speakerId: persona.id, affirmativeModel: "first:model-a", negativeModel: "second:model-b", judgeModel: "second:judge-model" };
     assert.equal((await post("/api/arenas", { ...setup, negativeModel: setup.affirmativeModel })).status, 400);
     assert.equal((await post("/api/arenas", { ...setup, judgeModel: "unknown" })).status, 400);
     assert.equal((await post("/api/arenas", { ...setup, apiKey: "bad" })).status, 400);
@@ -81,7 +85,8 @@ test("Arena API compares providers through the Practice SDK path and retries onl
     const aInput = JSON.stringify(first.requests[1]?.body.input);
     const bInput = JSON.stringify(second.requests[0]?.body.input);
     for (const input of [aInput, bInput]) {
-      assert.match(input, /Learning should be accessible/);
+      assert.match(input, /Prefer concrete accessible vocabulary/);
+      assert.doesNotMatch(input, /Learning should be accessible/);
       assert.match(input, /Present two or three distinct opening arguments/);
       assert.match(input, /simulated debate opponent/);
     }
@@ -113,7 +118,7 @@ const models = { affirmative: model("a"), negative: model("b"), judge: model("ju
 const judge: ArenaJudge = { judge: async () => ({ scores: { affirmative: 0, negative: 0 }, rationale: "Tied", criteria: ARENA_CRITERIA, provisional: true }), dispose: async () => {} };
 
 test("Arena isolates contexts, rejects concurrent runs and suppresses output after ending", async () => {
-  const { root, videos, record } = await sources();
+  const { root, videos, record, persona } = await sources();
   let started!: () => void;
   let release!: (text: string) => void;
   let disposals = 0;
@@ -125,20 +130,21 @@ test("Arena isolates contexts, rejects concurrent runs and suppresses output aft
     reply: async () => "Reply", resetPractice() {}, dispose: async () => { disposals++; },
   }), async () => judge);
   try {
-    const first = await service.create(record.id, models); const second = await service.create(record.id, models);
-    first.speaker.remarks[0]!.quote = "Tampered";
+    const first = await service.create(persona.id, models); const second = await service.create(persona.id, models);
+    first.speaker.personaMarkdown = "Tampered";
     await service.act(first.id, "prepare", "Learning");
     const running = service.act(first.id, "run"); await ready;
     await assert.rejects(service.act(first.id, "run"), /unavailable/);
     assert.equal(service.get(second.id).messages.length, 0);
-    assert.equal(contexts[0]?.speaker?.remarks[0]?.quote, "Learning should be accessible.");
+    assert.equal(contexts[0]?.speaker?.personaMarkdown, persona.markdown);
+    assert.equal(contexts[0]?.speaker?.personaId, persona.id);
     const ended = service.act(first.id, "end");
     release("Late argument"); await running; await ended;
     assert.equal(service.get(first.id).status, "ended");
     assert.equal(service.get(first.id).messages.length, 0);
     assert.equal(disposals, 2);
     for (let i = 0; i < 21; i++) {
-      const next = await service.create(record.id, models);
+      const next = await service.create(persona.id, models);
       await service.act(next.id, "end");
     }
   } finally { await service.close(); await rm(root, { recursive: true, force: true }); }

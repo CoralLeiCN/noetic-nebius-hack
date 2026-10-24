@@ -1,14 +1,19 @@
 # Debate Assistant Technology Stack
 
-Status: Initial CLI implemented. This document is self-contained and records technology decisions independently of the product specification. The Codex SDK and runtime are pinned to `0.164.0`; live Nebius compatibility still requires the configured provider check.
+Status: Local CLI, web practice, source records and persona compilation implemented. This document is self-contained and records technology decisions independently of the product specification. The Codex SDK and runtime are pinned to `0.164.0`; live Nebius compatibility still requires the configured provider check.
 
 ## System overview
 
-A local text application helps a human debate an assistant. The application owns the topic, opposing positions, side selection, and transcript. Codex owns model execution and conversation threads. Nebius supplies model inference through a configurable endpoint.
+A local web app and text CLI help a human debate an assistant. The application owns source records, compiled speaker personas, the topic, opposing positions, side selection and transcript. Codex owns model execution and conversation threads. Nebius supplies source extraction and debate inference through a configurable endpoint. Persona compilation uses Codex with the existing ChatGPT OAuth login.
 
 ```text
+Source records
+  -> Codex SDK with ChatGPT OAuth
+  -> Speaker persona Markdown
+  -> Web speaker selector
+
 Human
-  -> Text interface
+  -> Web or text interface
   -> Debate session service
   -> Codex SDK
   -> Codex runtime / agent harness
@@ -21,15 +26,17 @@ Human
 | --- | --- | --- |
 | Agent harness | Codex runtime | Required by the user; runs the assistant's model interactions. |
 | Harness integration | Official `@openai/codex-sdk` package, version `0.164.0` | Implemented with the matching pinned Codex runtime. |
-| Initial model provider | Nebius | Required by the user; replaces the earlier Mapis reference. |
+| Source and practice model provider | Nebius | Configurable compatible endpoint and web model selection. |
+| Persona compiler authentication | Codex ChatGPT OAuth | Reuses an existing Codex login; no provider API-key fallback. |
+| Speaker representation | Saved `persona.md` with `persona.json` metadata | Compiled from validated source records; only the Markdown enters practice as speaker context. |
 | Model transport | OpenAI Responses-compatible API | Required by the current Codex provider configuration. |
 | Endpoint configuration | Environment variables mapped to Codex provider overrides | Required; endpoint changes must not require a code change. |
 | Application language | TypeScript `7.0.2` | Implemented; shares types with the SDK. |
 | Runtime | Node.js 24 or later | `.nvmrc` selects the Node.js 24 LTS family; `@types/node` is pinned to `24.19.2`. |
 | Package manager | npm with a committed lockfile | Implemented; pins the SDK and its compatible Codex runtime together. |
-| First interface | Local command-line text interface using Node.js built-ins | Implemented; no frontend framework. |
+| Interfaces | Local web app and command-line text interface using Node.js built-ins | Implemented without a frontend framework. |
 | Application structure | A small session service plus a Codex adapter | Implemented; keeps debate rules separate from SDK and provider details. |
-| Runtime validation | Explicit validation of configuration and generated data | Implemented without a validation dependency. |
+| Runtime validation | Explicit validation and Ajv | Configuration, strict source-record schemas, quote fidelity and persona validation. |
 | Session state | In-memory application state and Codex thread identifiers | Implemented without an application database. Codex writes temporary local thread data. |
 | Tests | Node.js test runner and a configurable local provider fixture | Implemented; exercises domain behavior, actual SDK routing, and the CLI. |
 | Deployment | Local Node.js process with outbound access to the configured provider | Implemented; hosted deployment is outside the initial scope. |
@@ -48,7 +55,7 @@ The adapter:
 1. Validate environment configuration before starting a model operation.
 2. Create a Codex instance with explicit custom provider configuration using SDK configuration overrides.
 3. Use a preparation thread to generate the motion and opposing positions.
-4. Start a separate practice thread once sides are selected, supplying the accepted motion, both positions, and the assistant's assigned side.
+4. Start a separate practice thread once sides are selected, supplying the accepted motion, both positions, the assistant's assigned side and the selected persona Markdown. The preparation thread receives the topic only.
 5. Continue the same practice thread for follow-up turns using the SDK's thread API.
 6. Return completed assistant text and normalized failures to the session service.
 
@@ -58,15 +65,27 @@ Use dedicated debate instructions instead of Codex's default coding instructions
 
 Use process-scoped SDK overrides and isolated application runtime state. Do not edit the developer's personal Codex configuration or inherit unrelated personal integrations. The SDK supports configuration overrides without changing configuration files. [Codex SDK configuration](https://learn.chatgpt.com/docs/codex-sdk#configuration-overrides)
 
+## Persona compilation
+
+`PersonaService` reads validated saved source records for one normalized speaker name. The compiler analyzes the speaker's observed language and vocabulary, sentence rhythm, tone and register, rhetoric, argument structure, evidence use, interaction and rebuttal habits, and treatment of uncertainty and values. Each dimension includes source evidence, confidence and practical guidance. Inadequate evidence must remain explicit; transcript text does not establish acoustic voice characteristics or the person's views on unrelated topics.
+
+The compiler uses a fresh Codex SDK thread authenticated with the existing file-backed ChatGPT OAuth login. Use `codex -c 'cli_auth_credentials_store="file"' login`; an API-key or keyring-only login is not used. It does not use the Nebius credentials and does not fall back to that provider. Task instructions, tool restrictions and temporary history stay isolated from unrelated personal configuration. See [Codex authentication](https://learn.chatgpt.com/docs/auth) for login caching and credential storage.
+
+Input is capped at 120,000 serialized characters and rejected explicitly when over the limit, without silent truncation. Compiled Markdown is capped at 48,000 characters.
+
+Compiled versions are published under `data/persona-<uuid>/` as `persona.md` and `persona.json`. The persona list returns the latest version per normalized speaker name. A debate loads the saved Markdown into `{ personaId, name, personaMarkdown }` and deep-clones it into its session. It does not load source transcripts, extracted remarks or summaries. A rebuild produces a new version and affects only subsequently created debates. Compilation creates prompt context rather than changing model weights.
+
 ## Environment configuration
 
-These are application-level settings. The configuration loader must resolve them into actual Codex configuration values; Codex TOML does not perform the substitution shown in the illustrative example below.
+The Nebius settings configure source extraction and practice. Codex login settings configure the separate persona compiler. These are application-level settings. The configuration loader must resolve them into actual Codex configuration values; Codex TOML does not perform the substitution shown in the illustrative example below.
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `NEBIUS_BASE_URL` | Yes | Complete API base URL, including any version or deployment prefix; omit the final `/responses` operation path. Accept a compatible custom endpoint here. |
 | `NEBIUS_API_KEY` | Yes | Provider bearer token, supplied only through the process environment or an untracked local environment file. |
-| `NEBIUS_MODEL` | Yes | Exact model identifier accepted by the configured endpoint; no hardcoded model default. |
+| `NEBIUS_MODEL` | For CLI, source extraction and provider checks | Exact model identifier accepted by the configured endpoint; web practice may select a model instead. |
+| `CODEX_HOME` | No | Codex login location, defaulting to `~/.codex`; persona compilation requires a ChatGPT OAuth login there. |
+| `CODEX_PERSONA_MODEL` | No | Model for persona compilation; omit to use the Codex default available to the signed-in account. |
 
 The repository's `.env.example` provides this template:
 
@@ -121,7 +140,7 @@ If the endpoint only supports Chat Completions or rejects the Codex request shap
 
 ## Data, failures, and verification
 
-The session service stores a session ID, topic, motion, affirmative and negative positions, human and assistant sides, status, and completed transcript messages. The adapter holds preparation/practice thread IDs. Credentials are never session data. Durable application history and cross-process resume are deferred. Codex's history and diagnostics live in a private temporary runtime directory that is removed on normal shutdown; an abrupt kill may leave that temporary directory behind.
+The session service stores a session ID, topic, motion, affirmative and negative positions, human and assistant sides, status, completed transcript messages, selected model and a fixed copy of the persona Markdown. The adapter holds preparation/practice thread IDs. Credentials are never session data. Durable application history and cross-process resume are deferred. Codex's history and diagnostics live in a private temporary runtime directory that is removed on normal shutdown; an abrupt kill may leave that temporary directory behind.
 
 Validate generated positions before side selection. Each position must be nonempty, use the expected side identifier, and address the same motion. Validate shape in code and review semantic opposition with representative examples.
 
@@ -133,7 +152,6 @@ Verification must cover side assignment, state transitions, session isolation, i
 
 - The exact Nebius endpoint and model, to be supplied through environment variables and verified together.
 - Whether a later deployment needs an exact Node.js patch version beyond the selected LTS family. SDK, runtime, and build dependencies are pinned in the lockfile.
-- Whether to add a browser interface, using the existing session service and harness adapter.
 - Whether later versions need durable application storage, authentication, hosting, or additional provider-specific headers.
 
-The main technical uncertainty is actual Codex compatibility with the selected Nebius endpoint and model. Run that integration check before building a richer interface.
+Live checks remain necessary for Codex compatibility with the selected Nebius endpoint and model, and for persona quality through the user's Codex OAuth account. Local fixture tests do not establish live model access or the accuracy of an inferred persona.
