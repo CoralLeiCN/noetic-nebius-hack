@@ -1,6 +1,6 @@
 # Debate judging
 
-Edit the runtime judging prompts in [`src/prompts/argument-judge.ts`](../../src/prompts/argument-judge.ts) for individual speeches and [`src/prompts/arena-judge.ts`](../../src/prompts/arena-judge.ts) for Arena exchanges. Each file contains its system instructions, provisional criteria and evaluation task. The [prompt index](../../src/prompts/README.md) lists every application prompt and explains how to apply edits.
+Edit the runtime judging prompt in [`src/prompts/argument-judge.ts`](../../src/prompts/argument-judge.ts) for speeches in Practice, the CLI and Arena. It contains the shared system instructions, provisional criteria and evaluation task. [`src/prompts/arena-judge.ts`](../../src/prompts/arena-judge.ts) is the legacy whole-exchange prompt and is not used by the current Arena flow. The [prompt index](../../src/prompts/README.md) lists every application prompt and explains how to apply edits.
 
 ## Practice speech feedback
 
@@ -16,26 +16,22 @@ The server reports `generating_judgment` while evaluating speeches. Accepted mes
 
 Generated speech and human speech from one completed exchange are evaluated concurrently, and each evaluation sees only its own preceding context. Feedback is excluded from subsequent argument-generation prompts. Evaluation uses additional provider requests, each subject to the existing two-minute timeout.
 
-## Arena exchange feedback
+## Arena speech comparison
 
-Arena uses a separate judge model after both participants have completed their arguments. The judge runs through the same isolated Codex SDK adapter as the rest of the application, with judge-specific instructions and a structured response contract. Its provider and model are selected independently from the affirmative and negative participants.
+Arena randomly selects four distinct model IDs from its configured providers and generates four independent opening speeches for one chosen side of the same motion. A model ID available from several providers counts as one candidate. At least four distinct IDs must be available before a session can be created. The candidates receive the same topic, positions, saved persona Markdown and empty conversation history. Openings use the canonical [parliamentary speaking-style prompt](../../src/prompts/parliamentary-speaking-style.md) through the same practice adapter as Practice.
 
-### Provisional criteria
+### Shared scoring criteria
 
-The final judging criteria are not ready. The current judge prompt uses clarity of claims, reasoning, and response to opposing arguments as a provisional rubric, with an explicit TODO to replace it with agreed criteria. It also asks the judge to check whether source claims respect the supplied evidence and uncertainty. The UI labels every resulting evaluation provisional. A score compares the arguments in this exchange under the assigned sides and speaking order; it is not an overall model ranking.
+Arena automatically scores each opening using Practice’s existing `CodexArgumentJudge`, with the same structured response contract and validation. A separate judge runtime uses the selected judge model, defaulting to the catalog default when none is selected. Every candidate is assessed by that same judge model. Scores for clarity, reasoning and engagement have equal weight; the application rounds their mean to calculate the overall score. Each result includes concise feedback and the criterion breakdown described above.
 
-When final criteria are agreed, replace the placeholder in the judge prompt and update this document together with the validation tests. Keep the argument-generation path shared with Practice so the evaluation continues to reflect real usage.
+All scores are provisional and evaluate the supplied speeches on their shared topic and side. They do not establish an overall model ranking. Edit the shared speech judge prompt and update this document and validation tests together when changing the criteria.
 
-Participant openings and rebuttals use the canonical [parliamentary speaking-style prompt](../../src/prompts/parliamentary-speaking-style.md) through the shared backend practice adapter. The judge uses its own instructions and does not receive this speaking-style text block.
+### Input, recovery and cancellation
 
-### Input and output
+Each evaluation receives only the topic, shared motion and positions, chosen side and target speech. Its preceding-speeches list is empty. The judge does not receive model identities, persona instructions, other candidates’ speeches or earlier scores. Opening speeches are assessed for reasoning and anticipation of objections without requiring responses to opponents who have not spoken. Supplied content remains untrusted debate data; the judge must not invent evidence or treat simulated speeches as the real speaker’s statements.
 
-The judge receives the topic, shared motion and positions, bounded speaker source context, and confirmed transcript. Model identities are omitted from the judge input to reduce provider preference. Participant arguments and source material are data, not instructions to change the judging task. The judge must assess the supplied exchange without inventing evidence or treating simulated arguments as the real speaker's statements.
-
-The application validates the model's structured output before accepting it. Each side receives a numeric score from 0 to 100 and the evaluation includes a nonempty rationale. Accepted results carry the provisional criteria label. Failed generation or malformed output leaves the transcript intact and offers a retry; no placeholder or random scores are displayed.
-
-Arena judging is available only after the exchange is complete. Ending the session aborts in-progress work and prevents late judge output from being committed. Credentials and raw provider errors are excluded from public session data.
+Generated speech text is retained before evaluation. Failed generation or malformed judge output leaves confirmed speeches and successful scores intact. Retrying continues only the unfinished work; the application never substitutes sample or random scores. Ending the session aborts in-progress work and prevents late output from being committed. Credentials and raw provider errors are excluded from public session data.
 
 ## Draft rubric
 
-- [Scoring rubric](scoring-rubric.md): proposed dimensions, level descriptors, violations, speaker points, decision procedure and output format for structured 1v1 human–AI debates adapted from British Parliamentary rules. This six-speech format is a design draft for future structured sessions; the current four-contribution Arena exchange continues to use the provisional criteria above.
+- [Scoring rubric](scoring-rubric.md): proposed dimensions, level descriptors, violations, speaker points, decision procedure and output format for structured 1v1 human–AI debates adapted from British Parliamentary rules. This six-speech format is a design draft for future structured sessions; current Arena opening comparisons use the same provisional speech criteria as Practice.

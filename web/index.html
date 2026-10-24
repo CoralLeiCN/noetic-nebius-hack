@@ -90,7 +90,7 @@
       </div>
     </section>
     <section id="arena-screen" aria-label="Arena model comparison" hidden>
-      <div class="intro"><p class="eyebrow">SAME DEBATE · DIFFERENT MODELS</p><h1>Put models<br><span>to the test.</span></h1><p>Give two models the same speaker persona and debate format. Watch their arguments unfold, then compare a judge’s provisional scores.</p></div>
+      <div class="intro"><p class="eyebrow">ONE TOPIC · FOUR RANDOM MODELS</p><h1>Put models<br><span>to the test.</span></h1><p>Enter a topic as you would in Practice. Four randomly selected models give their opening on the same side, then the existing speech judge scores each result.</p></div>
       <div class="debate-workspace">
         <aside class="debate-setup">
           <form id="arena-form">
@@ -100,14 +100,10 @@
               <textarea id="arena-topic" rows="3" maxlength="2000" placeholder="e.g. Should cities make public transport free?" required></textarea>
               <div class="speaker-heading"><label id="arena-speaker-label">Choose a speaker persona</label><button type="button" id="arena-refresh-speakers" class="text-button">Refresh</button></div>
               <div id="arena-speaker-options" role="group" aria-labelledby="arena-speaker-label"><p class="hint">Loading personas…</p></div>
-              <p id="arena-speaker-empty" class="hint" hidden>Build a speaker persona in the library to give both models the same communication style and debate habits.</p>
-              <div class="speaker-heading"><label for="arena-affirmative-model">Affirmative model</label><button type="button" id="arena-refresh-models" class="text-button">Refresh models</button></div>
-              <select id="arena-affirmative-model" class="model-select" required disabled><option value="">Loading models…</option></select>
-              <label for="arena-negative-model">Negative model</label>
-              <select id="arena-negative-model" class="model-select" required disabled><option value="">Loading models…</option></select>
-              <label for="arena-judge-model">Judge model</label>
+              <p id="arena-speaker-empty" class="hint" hidden>Build a speaker persona in the library to give all four models the same communication style and debate habits.</p>
+              <div class="speaker-heading"><label for="arena-judge-model">Judge model</label><button type="button" id="arena-refresh-models" class="text-button">Refresh models</button></div>
               <select id="arena-judge-model" class="model-select" required disabled><option value="">Loading models…</option></select>
-              <p id="arena-model-hint" class="hint">Both participants use the same argument-generation flow as Practice.</p>
+              <p id="arena-model-hint" class="hint">Four distinct models are selected randomly for each new comparison. All use the same opening flow as Practice.</p>
               <p id="arena-model-error" class="error" role="alert" hidden></p>
               <button type="submit" id="arena-prepare" class="primary">Prepare comparison <span aria-hidden="true">↗</span></button>
             </fieldset>
@@ -119,20 +115,20 @@
           <div class="panel-heading"><span class="step">02</span><h2>Model arena</h2><span id="arena-badge" class="count">SETUP</span></div>
           <p id="arena-error" class="error" role="alert" hidden></p>
           <p id="arena-status" class="arena-status" role="status" aria-live="polite"></p>
-          <div id="arena-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>One persona. Two models. A fairer comparison.</h3><p>Choose your models and topic. Review the opposing positions, run the debate, and ask a judge to compare the arguments.</p><span>PREPARE → DEBATE → EVALUATE</span></div>
+          <div id="arena-welcome" class="empty"><div class="empty-mark" aria-hidden="true">↔</div><h3>One persona. Four models. The same challenge.</h3><p>Enter your topic, review the positions, then choose which side all four models should defend. Each speech is scored automatically.</p><span>PREPARE → CHOOSE SIDE → COMPARE SCORES</span></div>
           <div id="arena-detail" hidden>
             <p id="arena-speaker-note" class="eyebrow"></p><h2 id="arena-motion"></h2>
             <p id="arena-source-note" class="hint"></p>
+            <div id="arena-participants" class="arena-participants" aria-label="Randomly selected models"></div>
             <div class="position-grid arena-positions"><article class="position-card"><span id="arena-affirmative-label">AFFIRMATIVE</span><strong id="arena-affirmative-position"></strong></article><article class="position-card"><span id="arena-negative-label">NEGATIVE</span><strong id="arena-negative-position"></strong></article></div>
-            <div id="arena-run-controls"><p class="hint">Each model gives an opening, then responds to its opponent using the Practice argument module.</p><button type="button" id="arena-run" class="primary">Run comparison <span aria-hidden="true">→</span></button><button type="button" id="arena-regenerate" class="text-button">↻ Regenerate positions</button></div>
+            <div id="arena-run-controls"><p class="hint">Choose the side all four models will defend. Each receives the same topic, positions and persona, with no other model’s speech.</p><label for="arena-side">Side to compare</label><select id="arena-side" class="model-select"><option value="affirmative">Affirmative</option><option value="negative">Negative</option></select><button type="button" id="arena-run" class="primary">Generate &amp; score four speeches <span aria-hidden="true">→</span></button><button type="button" id="arena-regenerate" class="text-button">↻ Regenerate positions</button></div>
             <div id="arena-messages" role="log" aria-label="Arena transcript" aria-live="polite" aria-relevant="additions"></div>
             <section id="arena-evaluation" class="arena-evaluation" aria-label="Judge evaluation" hidden>
               <div class="speaker-heading"><h3>Judge’s evaluation</h3><span class="count">PROVISIONAL</span></div>
               <p id="arena-judge-label" class="hint"></p>
-              <p class="hint">The final judging criteria are still being defined. Scores use a placeholder rubric and should be treated as exploratory.</p>
+              <p class="hint">Practice’s speech judge scores clarity, reasoning and engagement. Each overall score is their rounded average. These provisional scores describe this opening, rather than a general model ranking.</p>
               <div id="arena-scores" class="arena-scores" hidden></div>
               <p id="arena-judgment" class="arena-judgment"></p>
-              <button type="button" id="arena-judge" class="primary">Judge arguments <span aria-hidden="true">↗</span></button>
             </section>
           </div>
           <div class="debate-actions"><button type="button" id="arena-sync" class="secondary" hidden>Refresh comparison</button><button type="button" id="arena-retry" class="secondary" hidden>Retry generation</button><button type="button" id="arena-end" class="text-button" hidden>End comparison</button><button type="button" id="arena-new" class="secondary" hidden>New comparison</button></div>

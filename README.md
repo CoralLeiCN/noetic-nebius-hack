@@ -1,6 +1,6 @@
 # Debate Practice Assistant
 
-A local web app and CLI for practicing a debate against an assistant. Enter a topic, review an affirmative and a negative position on one motion, choose your side, and exchange arguments with the opposing assistant. In the web app, use source material to build a speaker persona, then practice against an opponent that follows the saved persona Markdown. Arena compares models and providers through the same practice module and visualizes scores from a separately selected judge.
+A local web app and CLI for practicing a debate against an assistant. Enter a topic, review an affirmative and a negative position on one motion, choose your side, and exchange arguments with the opposing assistant. In the web app, use source material to build a speaker persona, then practice against an opponent that follows the saved persona Markdown. Arena randomly selects four distinct models, generates comparable opening speeches through the same practice module, and scores each with the existing speech judge.
 
 Codex is the agent harness, accessed through the official TypeScript Codex SDK. Persona compilation uses your existing Codex ChatGPT OAuth login. Source extraction and debate generation use Nebius as the initial model provider. The API base URL and model are configurable; the endpoint must support the Responses protocol used by the pinned Codex runtime.
 
@@ -141,9 +141,9 @@ Successful requests return a session snapshot. Failed session actions return a s
 
 ## Arena model comparison
 
-Open **Arena** in the web app. Choose a compiled speaker persona, a topic, two different participant models or providers, and a judge model. Prepare the shared positions, review them, then run the exchange. Each participant produces an opening and a rebuttal using the same `CodexDebateAgent` methods and saved persona Markdown as Practice. The four completed contributions remain visible for review. Afterward, ask the selected judge to score the exchange; the interface displays both scores and its rationale.
+Open **Arena** in the web app. Enter a topic, choose a compiled speaker persona, and optionally change the judge model. The server randomly selects four distinct model IDs from the configured providers for each new session; at least four distinct IDs must be available. The same model ID offered by multiple providers counts as one candidate. Prepare and review the shared positions, select affirmative or negative, then run the comparison. All four models generate an independent opening for the same side, topic, positions and saved persona Markdown using Practice’s `CodexDebateAgent.opening` method. Each starts with an empty conversation history, so no candidate sees another candidate’s speech. The generated speeches remain visible alongside their scores.
 
-The judge criteria are a prompt placeholder. All scores are explicitly provisional, range from 0 to 100, and describe this exchange under its assigned sides and speaking order. They do not establish a general model ranking. Failed or invalid judge output produces an error and can be retried; the app does not substitute sample scores. See [the judger documentation](doc/judger/README.md) for the current evaluation contract.
+Scoring runs automatically using the existing `CodexArgumentJudge` from Practice in a separate runtime with the selected judge model. Each speech receives clarity, reasoning and engagement scores from 0 to 100, short comments, and an overall score calculated as their rounded mean. The judge sees only the topic, positions, chosen side and target speech, with no model identities, persona instructions, other candidates or earlier scores. These scores are provisional assessments of the supplied speeches, not a general model ranking. Failed generation or invalid feedback can be retried without repeating completed speeches or successful evaluations. See [the judger documentation](doc/judger/README.md) for the evaluation contract.
 
 By default Arena uses the existing `NEBIUS_BASE_URL` and `NEBIUS_API_KEY`. To compare providers, set `ARENA_PROVIDERS` to a JSON array in `.env`, with keys stored in separate environment variables:
 
@@ -159,15 +159,15 @@ The Arena API supports:
 | Method | Path | JSON body |
 | --- | --- | --- |
 | GET | `/api/arena/models` | None; returns public model choices and their selection keys |
-| POST | `/api/arenas` | `{ "speakerId": "persona-id", "affirmativeModel": "provider:model-id", "negativeModel": "provider:other-model-id", "judgeModel": "provider:judge-model-id" }` |
+| POST | `/api/arenas` | `{ "speakerId": "persona-id", "judgeModel": "provider:judge-model-id" }`; `judgeModel` is optional and defaults to the catalog default |
 | GET | `/api/arenas/:id` | None |
 | POST | `/api/arenas/:id/prepare` | `{ "topic": "Your topic" }` |
-| POST | `/api/arenas/:id/run` | `{}` |
-| POST | `/api/arenas/:id/judge` | `{}` |
+| POST | `/api/arenas/:id/run` | `{ "side": "affirmative" }` or `{ "side": "negative" }`; generates and automatically scores all four speeches |
+| POST | `/api/arenas/:id/judge` | `{}`; evaluates unscored speeches when judging is available |
 | POST | `/api/arenas/:id/retry` | `{}` |
 | POST | `/api/arenas/:id/end` | `{}` |
 
-Use the exact selection `key` returned by `/api/arena/models` for each model field. Failed actions return a sanitized error and session snapshot when available. Retry preserves confirmed contributions, and ending cancels further generation. Arena sessions are held in memory, expire after one hour of inactivity, and disappear on server restart. Generation and judging consume credits at the selected providers.
+Use the exact selection `key` returned by `/api/arena/models` for an explicit `judgeModel`. Participant selection happens on the server and is fixed for that session; start a new comparison to draw again. Failed actions return a sanitized error and session snapshot when available. Retry preserves generated speeches and successful scores, and ending cancels further generation and judging while ignoring late results. Arena sessions are held in memory, expire after one hour of inactivity, and disappear on server restart. Generation and judging consume credits at the selected providers.
 
 ## Video records
 

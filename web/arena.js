@@ -1,7 +1,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const sides = ["affirmative", "negative"];
-  const roles = [...sides, "judge"];
+  const roles = ["judge"];
   let speakers = [];
   let speakerId = "";
   let models = [];
@@ -77,12 +77,12 @@
     finally { $("arena-refresh-speakers").disabled = false; }
   }
   function renderModels() {
-    for (const [index, role] of roles.entries()) {
+    for (const role of roles) {
       const select = $(`arena-${role}-model`);
       const options = [...models];
       const saved = session?.models[role];
       if (saved && !options.some(model => model.key === saved.key)) options.push(saved);
-      const desired = saved?.key || modelChoices[role] || (index === 1 ? models.find(model => model.key !== modelChoices.affirmative)?.key : defaultModel);
+      const desired = saved?.key || modelChoices[role] || defaultModel;
       select.replaceChildren();
       for (const provider of [...new Set(options.map(model => model.providerName))]) {
         const group = node("optgroup"); group.label = provider;
@@ -107,6 +107,9 @@
       const catalog = await request("/api/arena/models");
       models = catalog.models; defaultModel = catalog.defaultModel || "";
       if (!models.length) throw new Error("No models are available from the configured providers.");
+      const count = new Set(models.map(model => model.id)).size;
+      $("arena-model-hint").textContent = `${count} distinct models available. Four are selected randomly for each new comparison and use the same opening flow as Practice.`;
+      if (count < 4) throw new Error("Arena needs at least four distinct models. Configure another provider or refresh models.");
       if (catalog.warnings?.length) {
         $("arena-model-error").textContent = catalog.warnings.join(" ");
         $("arena-model-error").hidden = false;
@@ -118,24 +121,29 @@
     } finally { loadingModels = false; renderModels(); }
   }
   function renderScores() {
-    const judgment = session?.judgment;
-    $("arena-scores").hidden = !judgment;
+    const scored = session.results.filter(result => result.judgment);
+    $("arena-scores").hidden = !scored.length;
     $("arena-scores").replaceChildren();
-    $("arena-judgment").textContent = judgment ? judgment.rationale : session.messages.length === 4 ? "No scores yet. Ask the judge to evaluate the completed arguments." : "The models are debating. Scores will appear after the judge evaluates the completed arguments.";
-    if (!judgment) return;
-    for (const side of sides) {
-      const score = judgment.scores[side];
-      const row = node("div", undefined, `arena-score ${side}`);
+    $("arena-judgment").textContent = `${scored.length} of 4 speeches scored${session.side ? ` · ${session.side.toUpperCase()}` : ""}.`;
+    for (const result of scored) {
+      const { score, rationale, breakdown } = result.judgment;
+      const row = node("div", undefined, "arena-score");
       const heading = node("div", undefined, "arena-score-heading");
-      heading.append(node("span", `${side.toUpperCase()} · ${label(session.models[side])}`), node("strong", `${score} / 100`));
+      heading.append(node("span", label(result.model)), node("strong", `${score} / 100`));
       const track = node("div", undefined, "arena-score-track");
-      track.setAttribute("role", "meter"); track.setAttribute("aria-label", `${side} score`);
+      track.setAttribute("role", "meter"); track.setAttribute("aria-label", `${label(result.model)} score`);
       track.setAttribute("aria-valuemin", "0"); track.setAttribute("aria-valuemax", "100"); track.setAttribute("aria-valuenow", String(score));
       const fill = node("div", undefined, "arena-score-fill"); fill.style.width = `${Math.max(0, Math.min(100, score))}%`;
-      track.append(fill); row.append(heading, track); $("arena-scores").append(row);
+      track.append(fill); row.append(heading, track, node("p", rationale, "hint"));
+      const details = node("details", undefined, "arena-breakdown");
+      details.append(node("summary", "Score breakdown"));
+      for (const criterion of ["clarity", "reasoning", "engagement"]) {
+        const feedback = breakdown[criterion];
+        details.append(node("p", `${criterion[0].toUpperCase()}${criterion.slice(1)}: ${feedback.score} / 100 — ${feedback.comment}`, "hint"));
+      }
+      details.append(node("p", result.judgment.criteria, "hint"));
+      row.append(details); $("arena-scores").append(row);
     }
-    const rubric = node("p", `Placeholder criteria: ${judgment.criteria}`, "hint");
-    $("arena-scores").append(rubric);
   }
   function render() {
     const ended = session?.status === "ended";
@@ -146,7 +154,7 @@
     const judging = session?.status === "judging" || (busy && activeAction === "judge");
     const running = session?.status === "generating_arguments" || (busy && activeAction === "run");
     $("arena-fields").disabled = waiting || Boolean(session);
-    $("arena-prepare").disabled = waiting || loadingModels || !speakers.length || roles.some(role => !$(`arena-${role}-model`).value);
+    $("arena-prepare").disabled = waiting || loadingModels || !speakers.length || !models.length || Boolean(session) || roles.some(role => !$(`arena-${role}-model`).value);
     $("arena-prepare").textContent = waiting && !positions ? "Preparing comparison…" : "Prepare comparison ↗";
     for (const role of roles) $(`arena-${role}-model`).disabled = loadingModels || !models.length;
     $("arena-refresh-models").disabled = loadingModels;
@@ -155,7 +163,7 @@
     $("arena-detail").hidden = !positions;
     $("arena-badge").textContent = ended ? "ENDED" : uncertain ? "RECONNECT" : judging ? "JUDGING" : waiting ? "GENERATING" : completed ? "SCORED" : session?.status === "awaiting_judgment" ? "READY TO JUDGE" : positions ? "POSITIONS READY" : "SETUP";
     $("arena-status").textContent = ending ? "Ending the comparison…" : uncertain ? "Refresh the comparison to confirm its latest state." :
-      waiting ? judging ? "The judge is evaluating the arguments with a provisional rubric." : running ? "The models are taking turns. Completed arguments appear below." : "Preparing the opposing positions. This can take up to two minutes." :
+      waiting ? judging ? `Practice’s judge is scoring each speech. ${session.results.filter(result => result.judgment).length} of 4 scores ready.` : running ? `Generating four independent openings. ${session?.results.length || 0} of 4 speeches ready.` : "Preparing the opposing positions. This can take up to two minutes." :
       ended ? "Comparison ended. The completed transcript and any scores remain below." : pending ? "Generation stopped. Retry to continue from the last completed step." : "";
     $("arena-sync").hidden = !uncertain || waiting;
     $("arena-retry").hidden = !pending || waiting || ended || uncertain;
@@ -165,26 +173,27 @@
     $("arena-new").disabled = waiting;
     $("arena-run-controls").hidden = session?.status !== "positions_ready" || pending || uncertain;
     $("arena-run").disabled = waiting;
+    $("arena-side").disabled = waiting;
     $("arena-regenerate").disabled = waiting;
-    $("arena-evaluation").hidden = !positions || (!session.messages.length && !completed);
-    $("arena-judge").hidden = session?.status !== "awaiting_judgment" || pending || uncertain;
-    $("arena-judge").disabled = waiting;
+    $("arena-evaluation").hidden = !positions || (!session.results.length && !completed);
+    $("arena-retry").textContent = session?.pending?.kind === "judge" ? "Retry scoring" : "Retry generation";
     if (!positions) return;
     $("arena-speaker-note").textContent = `${session.speaker.name.toUpperCase()} · PERSONA-GUIDED SIMULATIONS`;
     $("arena-motion").textContent = positions.motion;
-    $("arena-source-note").textContent = `Both models receive the same saved persona for ${session.speaker.name}. Original source records stay in the library.`;
+    $("arena-source-note").textContent = `All four models receive the same saved persona for ${session.speaker.name}. Each generates an independent opening${session.side ? ` for the ${session.side} side` : ""}.`;
+    $("arena-participants").replaceChildren(...session.models.participants.map((model, index) => node("p", `${index + 1}. ${label(model)}`, "hint")));
     for (const side of sides) {
-      $(`arena-${side}-label`).textContent = `${side.toUpperCase()} · ${label(session.models[side])}`;
+      $(`arena-${side}-label`).textContent = side.toUpperCase();
       $(`arena-${side}-position`).textContent = positions[side];
     }
     $("arena-judge-label").textContent = `Judge: ${label(session.models.judge)}`;
-    const key = `${session.id}:${session.messages.length}`;
+    const key = `${session.id}:${session.results.length}`;
     if (messageKey !== key) {
       messageKey = key; $("arena-messages").replaceChildren();
-      for (const [index, message] of session.messages.entries()) {
-        const row = node("article", undefined, `debate-message ${message.side}`);
-        row.setAttribute("aria-label", `Turn ${index + 1}`);
-        row.append(node("h3", `${message.side.toUpperCase()} · ${label(session.models[message.side])} · SIMULATION`), node("p", message.text));
+      for (const [index, result] of session.results.entries()) {
+        const row = node("article", undefined, "debate-message arena-result");
+        row.setAttribute("aria-label", `Model ${index + 1} opening`);
+        row.append(node("h3", `${label(result.model)} · ${session.side.toUpperCase()} · SIMULATION`), node("p", result.text));
         $("arena-messages").append(row);
       }
       $("arena-messages").scrollTop = $("arena-messages").scrollHeight;
@@ -233,19 +242,18 @@
   }
   $("arena-form").addEventListener("submit", async event => {
     event.preventDefault();
-    if (busy || !speakerId || loadingModels) return;
+    if (busy || session || !speakerId || loadingModels || !models.length) return;
     const topic = $("arena-topic").value.trim();
     if (!topic || roles.some(role => !$(`arena-${role}-model`).value)) return;
     busy = true; error(); render();
     try {
-      session = await request("/api/arenas", { speakerId, affirmativeModel: $("arena-affirmative-model").value, negativeModel: $("arena-negative-model").value, judgeModel: $("arena-judge-model").value });
+      session = await request("/api/arenas", { speakerId, judgeModel: $("arena-judge-model").value });
       remember();
     } catch (failure) { error(failure.message); }
     finally { busy = false; render(); }
     if (session?.status === "topic_entry") await act("prepare", { topic });
   });
-  $("arena-run").addEventListener("click", () => { void act("run"); });
-  $("arena-judge").addEventListener("click", () => { void act("judge"); });
+  $("arena-run").addEventListener("click", () => { void act("run", { side: $("arena-side").value }); });
   $("arena-regenerate").addEventListener("click", () => { void act("prepare", { topic: session.topic }); });
   $("arena-retry").addEventListener("click", () => { void act("retry"); });
   $("arena-end").addEventListener("click", () => { void act("end"); });

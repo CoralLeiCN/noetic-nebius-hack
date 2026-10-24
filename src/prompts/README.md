@@ -6,8 +6,8 @@ This directory is the source of truth for the application's authored model instr
 | --- | --- | --- |
 | [debate.ts](debate.ts) | Debate system instructions, motion preparation and repair, openings, replies, speech names and word budgets | Web Practice, CLI and Arena participants through `CodexDebateAgent` |
 | [parliamentary-speaking-style.md](parliamentary-speaking-style.md) | Canonical parliamentary speaking-style text block | Openings and replies through `loadSpeakingStyle` |
-| [argument-judge.ts](argument-judge.ts) | Per-speech judge instructions, provisional criteria and evaluation task | Generated and human speeches in web Practice and the CLI |
-| [arena-judge.ts](arena-judge.ts) | Whole-exchange judge instructions, provisional criteria and evaluation task | Arena comparison |
+| [argument-judge.ts](argument-judge.ts) | Per-speech judge instructions, provisional criteria and evaluation task | Generated and human speeches in web Practice and the CLI; independent Arena openings |
+| [arena-judge.ts](arena-judge.ts) | Legacy whole-exchange judge instructions, provisional criteria and evaluation task | Retained legacy adapter; not used by the current Arena flow |
 | [video-analysis.ts](video-analysis.ts) | Source-transcript extraction instructions and task | Source library record creation |
 | [persona-generation.ts](persona-generation.ts) | Evidence-based persona compilation instructions and task | Persona compilation through Codex OAuth |
 | [persona-practice.ts](persona-practice.ts) | Compiled persona Markdown template, practice-role instructions and fallback guidance | Saved `persona.md` files supplied to debate practice |
@@ -22,7 +22,7 @@ Run `npm run typecheck` and `npm test` after edits. Output schemas, validation, 
 
 ## Related material
 
-- [Judging behavior and API](../../doc/judger/README.md) explains the two judge workflows.
-- [Scoring rubric draft](../../doc/judger/scoring-rubric.md) is a proposal for structured six-speech sessions. It is not loaded by either runtime judge; both currently use the provisional criteria in this directory.
+- [Judging behavior and API](../../doc/judger/README.md) explains speech judging in Practice and Arena.
+- [Scoring rubric draft](../../doc/judger/scoring-rubric.md) is a proposal for structured six-speech sessions. It is not loaded by the runtime speech judge; Practice and Arena use the shared provisional criteria in this directory.
 - Saved speaker personas under `data/persona-*/persona.md` are generated, speaker-specific prompt context, not application templates. Keep them with their source metadata rather than copying them into this directory.
 - Speech transcription language and text-to-speech voices are service configuration, documented in [local speech](../../doc/local-speech.md), rather than LLM instruction templates.

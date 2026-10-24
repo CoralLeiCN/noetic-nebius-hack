@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { loadProviderConfig, type ProviderConfig } from "./config.js";
 import { DebateError } from "./errors.js";
 import { ModelCatalog, type ModelOption } from "./models.js";
@@ -71,6 +72,20 @@ export class ArenaCatalog {
     const model = (await this.list()).models.find(model => model.key === key);
     if (!model) throw new RecordError(400, "Choose an available Arena model from the model list.");
     return model;
+  }
+
+  async comparison(judgeKey?: string): Promise<{ participants: ArenaModel[]; judge: ArenaModel }> {
+    const catalog = await this.list();
+    const judge = catalog.models.find(model => model.key === (judgeKey ?? catalog.defaultModel));
+    if (!judge) throw new RecordError(400, "Choose an available Arena judge from the model list.");
+    // The same model served by two providers still counts as one candidate.
+    const candidates = [...new Map(catalog.models.map(model => [model.id, model])).values()];
+    if (candidates.length < 4) throw new RecordError(400, "Arena needs at least four distinct models from the configured providers. Refresh models or configure another provider.");
+    for (let index = candidates.length - 1; index > 0; index--) {
+      const selected = randomInt(index + 1);
+      [candidates[index], candidates[selected]] = [candidates[selected]!, candidates[index]!];
+    }
+    return { participants: candidates.slice(0, 4), judge };
   }
 
   config(model: ArenaModel): ProviderConfig {

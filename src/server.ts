@@ -8,7 +8,6 @@ import { CodexDebateAgent } from "./codex-agent.js";
 import { DebateService, type DebateAction } from "./debate-service.js";
 import { ModelCatalog } from "./models.js";
 import { ArenaCatalog } from "./arena-providers.js";
-import { CodexArenaJudge } from "./arena-judge.js";
 import { CodexArgumentJudge } from "./argument-judge.js";
 import { ArenaService, type ArenaAction } from "./arena-service.js";
 import { publicError } from "./errors.js";
@@ -94,7 +93,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
     model => CodexArgumentJudge.create(loadConfig(process.env, model))),
   models = new ModelCatalog(), arenaModels = new ArenaCatalog(),
   arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model)),
-    model => CodexArenaJudge.create(arenaModels.config(model))), personas = new PersonaService(service),
+    model => CodexArgumentJudge.create(arenaModels.config(model))), personas = new PersonaService(service),
   speech: SpeechApi = new SpeechServiceClient()) {
   let processing = false;
   const server = createServer(async (request, response) => {
@@ -128,11 +127,8 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
       }
       if (request.method === "GET" && url.pathname === "/api/arena/models") return json(response, 200, await arenaModels.list());
       if (request.method === "POST" && url.pathname === "/api/arenas") {
-        const body = await jsonBody(request, ["speakerId", "affirmativeModel", "negativeModel", "judgeModel"]);
-        const [affirmative, negative, judge] = await Promise.all([
-          arenaModels.select(body.affirmativeModel!), arenaModels.select(body.negativeModel!), arenaModels.select(body.judgeModel!),
-        ]);
-        return json(response, 201, await arenas.create(body.speakerId!, { affirmative, negative, judge }));
+        const body = await jsonBody(request, ["speakerId"], ["judgeModel"]);
+        return json(response, 201, await arenas.create(body.speakerId!, await arenaModels.comparison(body.judgeModel)));
       }
       const arenaRoute = /^\/api\/arenas\/([a-f0-9-]{36})(?:\/(prepare|run|judge|retry|end))?$/.exec(url.pathname);
       if (arenaRoute) {
@@ -140,8 +136,8 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
         if (request.method === "GET" && !arenaRoute[2]) return json(response, 200, arenas.get(id));
         if (request.method === "POST" && arenaRoute[2]) {
           const action = arenaRoute[2] as ArenaAction;
-          const body = await jsonBody(request, action === "prepare" ? ["topic"] : []);
-          try { return json(response, 200, await arenas.act(id, action, body.topic)); }
+          const body = await jsonBody(request, action === "prepare" ? ["topic"] : action === "run" ? ["side"] : []);
+          try { return json(response, 200, await arenas.act(id, action, action === "run" ? body.side : body.topic)); }
           catch (error) {
             let session;
             try { session = arenas.get(id); } catch { /* The session may have expired. */ }
