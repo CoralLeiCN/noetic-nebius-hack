@@ -6,3 +6,7 @@ dist/
 .debate/
 *.log
 .DS_Store
+data/.pending-*/
+data/**/video.mp4
+data/**/video.webm
+data/**/video.mov

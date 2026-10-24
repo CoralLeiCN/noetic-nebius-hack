@@ -73,12 +73,24 @@ Never commit `.env` or put credentials in a topic. `.env`, build output, and dep
 
 ## Video records
 
-The [video data index](data/README.md) lists saved source videos. Each video has its own folder containing source links, the complete supplied transcript, extracted speaker remarks and a timestamped summary.
+Run the frontend and backend locally:
+
+```sh
+npm run start:web
+```
+
+Open [the source library](http://127.0.0.1:3000). Enter a speaker name. In **Video**, choose **Paste link** or **Upload file**. In **Transcript**, choose **Paste text** or **Upload file**. The title is optional. The interface shows saved records, summaries linked to supporting remarks, original transcripts, structured JSON and uploaded-video playback. Set `PORT` to change the local port.
+
+The backend uses the Codex SDK with the same provider configuration as the debate CLI. Provider credentials stay on the server. Browsing saved records does not require provider credentials; generating a record requires the `.env` settings above and consumes provider credits. The transcript supplies the words; video uploads are retained as source material and are not automatically transcribed or sent to the model.
+
+Each record is checked against the [strict versioned JSON Schema](schema/video-record.schema.json). Extracted quotes must occur verbatim in source cues, in order, and summary references must point to existing remarks. Speaker attribution and summaries still require human review. The [video data index](data/README.md) describes the saved folder format; [the service documentation](doc/video-record-service.md) covers the API, validation and limits.
 
 ## Design documents
 
 - [Product intent](doc/intent.md)
 - [Behavior specification](doc/spec.md)
 - [Technology stack](doc/tech-stack.md)
+- [Video-record service and API](doc/video-record-service.md)
+- [Judger documentation](doc/judger/README.md) (planned module)
 
-Structured competition rounds, judging, scoring, voice, and a graphical interface remain in the backlog.
+Structured competition rounds, judging, scoring, voice, and a graphical debate-practice interface remain in the backlog.

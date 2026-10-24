@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Source Library · Debate</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead"><a href="/" class="brand">d<span>.</span></a><span>DEBATE <span class="slash">/</span> SOURCE LIBRARY</span><a class="schema-link" href="/api/schema" target="_blank" rel="noopener">Record schema ↗</a></header>
+  <main>
+    <div class="intro"><p class="eyebrow">FROM SOURCE TO SPEAKER</p><h1>Keep the words.<br><span>Find the argument.</span></h1><p>A source, a transcript, a speaker. Build a traceable record of what was said and what it means.</p></div>
+    <div class="workspace">
+      <aside class="upload-panel">
+        <div class="panel-heading"><span class="step">01</span><h2>Add a video record</h2></div>
+        <form id="upload-form">
+          <fieldset id="upload-fields">
+            <label for="title">Video title <span class="optional">optional</span></label>
+            <input id="title" name="title" maxlength="300" placeholder="Give this record a title">
+            <label for="speakerName">Speaker name</label>
+            <input id="speakerName" name="speakerName" maxlength="120" placeholder="e.g. Andy Burnham" required>
+            <fieldset class="input-section">
+              <legend>Video</legend>
+              <div class="input-switch" role="group" aria-label="Video input method">
+                <button type="button" data-input="video" data-mode="paste" aria-pressed="true" aria-controls="video-paste">Paste link</button>
+                <button type="button" data-input="video" data-mode="upload" aria-pressed="false" aria-controls="video-upload">Upload file</button>
+              </div>
+              <div id="video-paste" data-panel="video" data-mode="paste">
+                <label class="sr-only" for="sourceUrls">Source video links</label>
+                <textarea id="sourceUrls" name="sourceUrls" rows="2" placeholder="Paste a video link here…" data-required="true" required></textarea>
+                <p class="hint">Paste one or more source video links, one per line.</p>
+              </div>
+              <div id="video-upload" data-panel="video" data-mode="upload" hidden>
+                <label class="sr-only" for="video">Video file</label>
+                <input id="video" name="video" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" data-required="true" disabled>
+                <p class="hint">MP4, WebM or MOV · up to 100 MiB. Retained for reference and playback.</p>
+              </div>
+            </fieldset>
+            <fieldset class="input-section">
+              <legend>Transcript</legend>
+              <div class="input-switch" role="group" aria-label="Transcript input method">
+                <button type="button" data-input="transcript" data-mode="paste" aria-pressed="true" aria-controls="transcript-paste">Paste text</button>
+                <button type="button" data-input="transcript" data-mode="upload" aria-pressed="false" aria-controls="transcript-upload">Upload file</button>
+              </div>
+              <div id="transcript-paste" data-panel="transcript" data-mode="paste">
+                <label class="sr-only" for="transcriptText">Transcript text</label>
+                <textarea id="transcriptText" name="transcriptText" rows="7" maxlength="500000" placeholder="Paste the transcript here, including timestamps if available…" data-required="true" required></textarea>
+                <p class="hint">Paste the original captions or transcript · up to 500,000 characters and 1 MiB.</p>
+              </div>
+              <div id="transcript-upload" data-panel="transcript" data-mode="upload" hidden>
+                <label class="sr-only" for="transcript">Transcript file</label>
+                <input id="transcript" name="transcript" type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt" data-required="true" disabled>
+                <p class="hint">UTF-8 TXT, SRT or VTT · up to 1 MiB and 500,000 characters.</p>
+              </div>
+            </fieldset>
+            <button class="primary" id="submit" type="submit">Generate record <span aria-hidden="true">↗</span></button>
+          </fieldset>
+          <button id="cancel" class="secondary" type="button" hidden>Cancel generation</button>
+          <p id="upload-status" role="status" aria-live="polite"></p>
+          <p id="upload-error" class="error" role="alert" hidden></p>
+        </form>
+        <div class="process-note"><span class="dot"></span><p>Codex extracts the speaker’s words and summarizes the remarks. Quotes are checked against the transcript. Review caption gaps and speaker attribution before quoting.</p></div>
+      </aside>
+      <section class="library-panel" aria-label="Saved video records">
+        <div class="panel-heading library-heading"><span class="step">02</span><h2>Your source library</h2><span id="record-count" class="count">0 records</span><button id="refresh" class="text-button" type="button">Refresh</button></div>
+        <p id="library-error" class="error" role="alert" hidden></p>
+        <div id="record-list" class="record-list" aria-label="Choose a video record"></div>
+        <div id="empty" class="empty"><div class="empty-mark" aria-hidden="true">“</div><h3>A good argument starts with a source.</h3><p>Add your first video record to see the original transcript, the speaker’s remarks and a linked summary here.</p><span>ORIGINAL WORDS → CLEARER CONTEXT</span></div>
+        <article id="record-view" hidden>
+          <p class="eyebrow" id="record-speaker"></p><h2 id="record-title"></h2>
+          <div id="sources" class="sources"></div>
+          <video id="player" controls preload="metadata" hidden></video>
+          <div class="view-tabs" role="group" aria-label="Record sections">
+            <button type="button" data-view="summary" aria-pressed="true">Summary</button>
+            <button type="button" data-view="remarks" aria-pressed="false">Speaker remarks</button>
+            <button type="button" data-view="transcript" aria-pressed="false">Full transcript</button>
+            <button type="button" data-view="record" aria-pressed="false">Structured data</button>
+          </div>
+          <div id="record-content" aria-live="polite"></div>
+          <a id="download" class="download" download>Download this section ↓</a>
+          <details id="limitations"><summary>Source and accuracy notes</summary><ul id="limitation-list"></ul></details>
+        </article>
+      </section>
+    </div>
+    <footer><span>Words preserved. Claims attributed.</span><span>SCHEMA v1.0 · CODEX SDK</span></footer>
+  </main>
+</body>
+</html>

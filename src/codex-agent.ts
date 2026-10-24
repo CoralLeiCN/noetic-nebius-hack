@@ -38,14 +38,14 @@ export class CodexDebateAgent implements DebateAgent {
     };
   }
 
-  static async create(config: ProviderConfig): Promise<CodexDebateAgent> {
+  static async create(config: ProviderConfig, instructions = INSTRUCTIONS): Promise<CodexDebateAgent> {
     const root = await realpath(await mkdtemp(join(tmpdir(), "debate-runtime-")));
     try {
       const stateDirectory = join(root, "codex");
       const instructionsPath = join(root, "instructions.md");
       await mkdir(stateDirectory, { mode: 0o700 });
       await mkdir(join(root, "workspace"), { mode: 0o700 });
-      await writeFile(instructionsPath, INSTRUCTIONS, { mode: 0o600 });
+      await writeFile(instructionsPath, instructions, { mode: 0o600 });
       // An explicit environment prevents personal Codex credentials, config,
       // integrations, and unrelated API keys from being inherited.
       const env: Record<string, string> = {
@@ -105,6 +105,11 @@ export class CodexDebateAgent implements DebateAgent {
     return { preparation: this.preparationId, practice: this.practiceThread?.id ?? null };
   }
 
+  /** A fresh, isolated SDK thread for a schema-constrained service task. */
+  async structured(prompt: string, outputSchema: unknown, signal: AbortSignal): Promise<string> {
+    return this.run(this.codex.startThread(this.options), prompt, signal, outputSchema);
+  }
+
   async prepare(topic: string, signal: AbortSignal): Promise<Positions> {
     const thread = this.codex.startThread(this.options);
     const task = `Create one debate motion and exactly two opposing declarative positions about the topic.
@@ -157,12 +162,12 @@ Topic data: ${JSON.stringify({ topic })}`;
     }
   }
 
-  private async run(thread: Thread, prompt: string, signal: AbortSignal): Promise<string> {
+  private async run(thread: Thread, prompt: string, signal: AbortSignal, outputSchema?: unknown): Promise<string> {
     const timeout = AbortSignal.timeout(120_000);
     const abort = new AbortController();
     const combined = AbortSignal.any([signal, timeout, abort.signal]);
     try {
-      const { events } = await thread.runStreamed(prompt, { signal: combined });
+      const { events } = await thread.runStreamed(prompt, { signal: combined, ...(outputSchema ? { outputSchema } : {}) });
       let finalResponse = "";
       let completed = false;
       let diagnostic: string | null = null;
@@ -175,7 +180,7 @@ Topic data: ${JSON.stringify({ topic })}`;
           const item = event.item;
           if (!["agent_message", "reasoning", "error"].includes(item.type)) {
             abort.abort();
-            throw new DebateError("The model attempted a tool action. This application supports debate text only.");
+            throw new DebateError("The model attempted a tool action. This application supports text generation only.");
           }
           if (item.type === "error") diagnostic = item.message;
           if (event.type === "item.completed" && item.type === "agent_message") finalResponse = item.text;
