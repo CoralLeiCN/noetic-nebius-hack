@@ -55,3 +55,13 @@ data/
 | Andy Burnham | [Persona Markdown](persona-68d19c77-1a2b-4011-8b53-7af83acb37f5/persona.md) | [Parliamentary exchange](youtube-xX9c2Vg2Z00/README.md) |
 
 The latest Andy Burnham persona was compiled through a live Codex OAuth request on October 24, 2026 at 14:26:43 UTC. Only this version is retained in the checkout; older versions remain in Git history. It reflects one captioned exchange; its observations are scoped to that source.
+
+## Authored personas
+
+Authored personas use the same `persona-<uuid>/` folder layout and are available in Practice, Arena and the source library without video records or persona compilation. Their `persona.json` uses schema version `1.1` and `kind: "authored"`, with zero sources and no evidence-analysis dimensions. Limitations describe their provenance, and the active Markdown has the same checksum validation as compiled personas. Compiled schema version `1.0` still requires its source records and supporting evidence.
+
+| Speaker | Active persona | Supplied template |
+| --- | --- | --- |
+| Socrates of Athens | [Persona Markdown](persona-a84d56f7-915c-46f6-bf44-8f8e78f0151d/persona.md) | [Original authored template](persona-a84d56f7-915c-46f6-bf44-8f8e78f0151d/source.md) |
+
+The Socrates persona adapts the supplied template's questioning, everyday craft analogies, principled reasoning and gentle irony to the app's opening and reply tasks. The original template was moved from `doc/socrates-persona.md` to `source.md` without changing its contents. The active persona follows the application's word budgets, language and parliamentary guardrails; it does not introduce the template's six-speech schedule, difficulty selector or separate POI task protocol. No historical excerpts were supplied or verified, and the app does not claim that these instructions were compiled from Plato's text.

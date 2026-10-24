@@ -226,7 +226,7 @@ import { createDebateSpeech } from "./debate-speech.js";
       radio.checked = speaker.id === speakerId; radio.required = true;
       radio.addEventListener("change", () => { speakerId = speaker.id; renderState(); });
       const copy = node("span");
-      copy.append(node("strong", speaker.speakerName), node("small", `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
+      copy.append(node("strong", speaker.speakerName), node("small", speaker.kind === "authored" ? "Authored persona" : `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
       label.append(radio, copy); $("speaker-options").append(label);
     }
     $("speaker-empty").hidden = Boolean(speakers.length);

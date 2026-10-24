@@ -58,7 +58,7 @@ function failedSession(kind: "reply" | "opening"): Snapshot {
   };
 }
 
-async function ui(initial: Snapshot, preferences = new Map<string, string>(), catalogFails = false, personasFail = false) {
+async function ui(initial: Snapshot, preferences = new Map<string, string>(), catalogFails = false, personasFail = false, authored = false) {
   let now = 0;
   let timerSequence = 0;
   const timers = new Map<number, { due: number; delay: number; callback: () => void }>();
@@ -108,7 +108,7 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
     requests.push({ path, body });
     if (path === "/api/personas") return personasFail
       ? Response.json({ error: "Saved persona does not match its manifest." }, { status: 500 })
-      : Response.json([{ id: initial.speaker!.personaId, speakerName: initial.speaker!.name, sourceCount: 1 }, { id: "speaker-2", speakerName: "Morgan", sourceCount: 1 }]);
+      : Response.json([{ id: initial.speaker!.personaId, speakerName: initial.speaker!.name, sourceCount: authored ? 0 : 1, ...(authored ? { kind: "authored" } : {}) }, { id: "speaker-2", speakerName: "Morgan", sourceCount: 1 }]);
     if (path === "/api/speech/voices") return catalogFails ? Response.json({ error: "Unavailable" }, { status: 503 }) : Response.json({
       provider: "elevenlabs", defaultVoiceId: "default-voice", voices: [{ id: "default-voice", name: "Default voice" }, { id: "6osMNatXqZrKCuGTB2bV", name: "The Rising Reformer" }],
       speakerDefaults: { "andy burnham": "6osMNatXqZrKCuGTB2bV" },
@@ -201,6 +201,16 @@ test("persona list failure replaces the loading state and Refresh recovers", asy
   assert.equal(app.element("speaker-options").children.length, 2);
   assert.equal(app.element("speaker-options").children[0]!.className, "speaker-card");
   assert.equal(app.element("debate-error").hidden, true);
+});
+
+test("Practice identifies an authored persona without presenting nonexistent video sources", async () => {
+  const snapshot = failedSession("reply");
+  snapshot.speaker!.name = "Socrates";
+  const app = await ui(snapshot, new Map(), false, false, true);
+  const label = app.element("speaker-options").children[0]!;
+  assert.equal(label.children[1]!.children[0]!.textContent, "Socrates");
+  assert.equal(label.children[1]!.children[1]!.textContent, "Authored persona");
+  assert.equal(label.children[0]!.checked, true);
 });
 
 for (const kind of ["opening", "reply"] as const) test(`failed ${kind} keeps speech and draft available with explicit recovery`, async () => {

@@ -21,7 +21,8 @@ export interface PersonaAnalysis {
   limitations: string[];
 }
 export interface Persona {
-  schemaVersion: "1.0";
+  schemaVersion: "1.0" | "1.1";
+  kind?: "authored";
   id: string;
   speakerName: string;
   createdAt: string;
@@ -32,7 +33,7 @@ export interface Persona {
   markdown: string;
   markdownSha256: string;
 }
-export type PersonaSummary = Pick<Persona, "id" | "speakerName" | "createdAt" | "sourceCount">;
+export type PersonaSummary = Pick<Persona, "id" | "speakerName" | "createdAt" | "sourceCount" | "kind">;
 export interface PersonaAnalyzer {
   analyze(speakerName: string, records: VideoRecord[], signal: AbortSignal): Promise<unknown>;
 }
@@ -73,7 +74,29 @@ const manifestSchema = {
     analysis: personaAnalysisSchema, markdownSha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
   },
 };
-const validateManifest = new Ajv({ strict: true }).compile<Omit<Persona, "markdown">>(manifestSchema);
+// Authored personas carry instructions supplied by an author, rather than
+// observations compiled from video records. Keep their provenance separate.
+const authoredManifestSchema = {
+  ...manifestSchema,
+  required: [...manifestSchema.required, "kind"],
+  properties: {
+    ...manifestSchema.properties,
+    schemaVersion: { const: "1.1" }, kind: { const: "authored" },
+    sourceCount: { const: 0 },
+    sourceIds: { type: "array", maxItems: 0 },
+    sources: { type: "array", maxItems: 0 },
+    analysis: {
+      ...personaAnalysisSchema,
+      properties: {
+        ...personaAnalysisSchema.properties,
+        dimensions: { type: "array", maxItems: 0 },
+      },
+    },
+  },
+};
+const validateManifest = new Ajv({ strict: true }).compile<Omit<Persona, "markdown">>({
+  anyOf: [manifestSchema, authoredManifestSchema],
+});
 export const speakerKey = (name: string): string => name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 const personaId = (id: string): boolean => /^persona-[a-f0-9-]{36}$/.test(id);
 const hashText = (value: string): string => digest(Buffer.from(value, "utf8"));
@@ -180,7 +203,7 @@ export class PersonaService {
           !Number.isFinite(Date.parse(manifest.createdAt)) || manifest.sourceCount !== manifest.sourceIds.length ||
           manifest.sources.length !== manifest.sourceCount ||
           manifest.sources.some((source, index) => source.id !== manifest.sourceIds[index]) ||
-          new Set(manifest.analysis.dimensions.map(item => item.dimension)).size !== DIMENSIONS.length ||
+          new Set(manifest.analysis.dimensions.map(item => item.dimension)).size !== (manifest.kind === "authored" ? 0 : DIMENSIONS.length) ||
           manifest.analysis.dimensions.some(item => (item.confidence === "unknown") !== (item.evidence.length === 0) ||
             item.evidence.some(evidence => !manifest.sourceIds.includes(evidence.recordId))) ||
           !markdown.trim() || markdown.length > 48_000 || hashText(markdown) !== manifest.markdownSha256) {
@@ -206,6 +229,6 @@ export class PersonaService {
       const key = speakerKey(persona.speakerName);
       if (names.has(key)) return false;
       names.add(key); return true;
-    }).map(({ id, speakerName, createdAt, sourceCount }) => ({ id, speakerName, createdAt, sourceCount }));
+    }).map(({ id, speakerName, createdAt, sourceCount, kind }) => ({ id, speakerName, createdAt, sourceCount, ...(kind ? { kind } : {}) }));
   }
 }

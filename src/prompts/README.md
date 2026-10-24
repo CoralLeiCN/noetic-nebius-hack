@@ -24,5 +24,5 @@ Run `npm run typecheck` and `npm test` after edits. Output schemas, validation, 
 
 - [Judging behavior and API](../../doc/judger/README.md) explains speech judging in Practice and Arena.
 - [Scoring rubric draft](../../doc/judger/scoring-rubric.md) is a proposal for structured six-speech sessions. It is not loaded by the runtime speech judge; Practice and Arena use the shared provisional criteria in this directory.
-- Saved speaker personas under `data/persona-*/persona.md` are generated, speaker-specific prompt context, not application templates. Keep them with their source metadata rather than copying them into this directory.
+- Saved speaker personas under `data/persona-*/persona.md` are speaker-specific prompt context. Compiled personas retain their source metadata; authored personas, including Socrates, retain an explicit authored manifest and their supplied template. Keep both kinds under `data/` rather than copying them into this directory. See the [persona index](../../data/README.md).
 - Speech transcription language and text-to-speech voices are service configuration, documented in [local speech](../../doc/local-speech.md), rather than LLM instruction templates.

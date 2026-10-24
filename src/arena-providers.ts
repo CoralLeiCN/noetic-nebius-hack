@@ -44,7 +44,7 @@ export class ArenaCatalog {
       catch { throw new DebateError(`Check the API base URL and API-key environment variable for Arena provider ${data.id}.`); }
       const preferred = data.defaultModel as string | undefined;
       providers.push({ id: data.id, name: data.name.trim(), config,
-        catalog: new ModelCatalog(() => config, () => preferred, true) });
+        catalog: new ModelCatalog(() => config, () => preferred) });
     }
     this.providers = providers;
     return providers;

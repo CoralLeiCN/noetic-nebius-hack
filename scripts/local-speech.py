@@ -104,6 +104,10 @@ def setup(asr, compare):
 def start(asr):
     provider = tts_provider(require_credentials=True)
     workers = [(asr, 8765)] + ([("voxtral", 8766)] if provider == "local" else [])
+    for name, _ in workers:
+        binary = STATE / "runtime/bin" / MODELS[name][1]
+        if not binary.is_file() or not model_directory(name).is_dir():
+            raise SystemExit("Speech runtime or model weights are missing. Run npm run speech:setup once in this checkout, then start again.")
     children = []
     try:
         for name, port in workers:

@@ -2,16 +2,18 @@ import { loadProviderConfig, type ProviderConfig } from "./config.js";
 import { DebateError } from "./errors.js";
 import { RecordError } from "./video-record.js";
 
-export interface ModelOption { id: string; name: string; family: "DeepSeek" | "MiniMax" | "Nemotron" | "Gemma" | "Qwen" | "Configured" }
+export interface ModelOption { id: string; name: string; family: "DeepSeek" | "MiniMax" | "Nemotron" | "Gemma" | "Qwen" | "Muse" | "GLM" | "Configured" }
 export interface ModelList { models: ModelOption[]; defaultModel: string | null }
 
 // Keep display labels separate from the provider's exact request IDs.
-const PRACTICE_MODELS: readonly ModelOption[] = [
+const DEBATE_MODELS: readonly ModelOption[] = [
   { id: "deepseek-ai/DeepSeek-V4.1-Flash-1017", name: "DeepSeek V4.1 Flash 1017", family: "DeepSeek" },
   { id: "MiniMaxAI/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", family: "MiniMax" },
   { id: "nvidia/Nemotron-3_5-Lightning", name: "Nemotron-3.5-Lightning", family: "Nemotron" },
   { id: "google/gemma-4-31B-it", name: "Gemma-4-31B-it", family: "Gemma" },
   { id: "Qwen/Qwen3.8-27B", name: "Qwen3.8-27B", family: "Qwen" },
+  { id: "meta-models/muse-spark-open", name: "Muse Spark Open", family: "Muse" },
+  { id: "zai-org/GLM-5.3-Flash", name: "GLM 5.3 Flash", family: "GLM" },
 ];
 
 /** Discover models at the configured endpoint; never send the provider key to the browser. */
@@ -21,7 +23,6 @@ export class ModelCatalog {
   constructor(
     private readonly config: () => Omit<ProviderConfig, "model"> = loadProviderConfig,
     private readonly preferred: () => string | undefined = () => process.env.NEBIUS_MODEL,
-    private readonly includeAll = false,
   ) {}
 
   async list(): Promise<ModelList> {
@@ -31,8 +32,9 @@ export class ModelCatalog {
     finally { this.pending = null; }
   }
 
-  async select(id: string): Promise<ModelOption> {
-    const match = (await this.list()).models.find(model => model.id === id);
+  async select(id?: string): Promise<ModelOption> {
+    const list = await this.list();
+    const match = list.models.find(model => model.id === (id ?? list.defaultModel));
     if (!match) throw new RecordError(400, "Choose an available model from the model list.");
     return match;
   }
@@ -56,16 +58,10 @@ export class ModelCatalog {
       if (!item || typeof item !== "object") continue;
       const id = (item as { id?: unknown }).id;
       if (typeof id !== "string" || id.length > 300 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(id)) continue;
-      const curated = PRACTICE_MODELS.find(model => model.id === id);
+      const curated = DEBATE_MODELS.find(model => model.id === id);
       if (curated) models.set(id, { ...curated });
-      else if (this.includeAll) {
-        const family = /^deepseek-ai\//i.test(id) ? "DeepSeek" : /^MiniMaxAI\//i.test(id) ? "MiniMax" : "Configured";
-        models.set(id, { id, name: id.split("/").at(-1)!.replaceAll("-", " "), family });
-      }
     }
-    const sorted = this.includeAll
-      ? [...models.values()].sort((a, b) => a.family.localeCompare(b.family) || a.name.localeCompare(b.name))
-      : PRACTICE_MODELS.flatMap(model => models.get(model.id) ?? []);
+    const sorted = DEBATE_MODELS.flatMap(model => models.get(model.id) ?? []);
     const list = { models: sorted, defaultModel: sorted.find(model => model.id === preferred)?.id ?? sorted[0]?.id ?? null };
     this.cached = { at: Date.now(), list };
     return list;

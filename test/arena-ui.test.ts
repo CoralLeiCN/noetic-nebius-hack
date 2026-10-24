@@ -61,7 +61,7 @@ function textOf(element: UiElement): string {
   return [element.textContent, ...element.children.map(textOf)].join(" ");
 }
 
-async function ui(options: { models?: ArenaModel[]; failScoring?: boolean } = {}) {
+async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; authored?: boolean } = {}) {
   const html = await readFile(resolve("web/index.html"), "utf8");
   const elements = new Map<string, UiElement>();
   for (const match of html.matchAll(/id="([^"]+)"/gu)) {
@@ -79,7 +79,9 @@ async function ui(options: { models?: ArenaModel[]; failScoring?: boolean } = {}
   const fetch = async (path: string, request?: { body: string }): Promise<Response> => {
     const body = request ? JSON.parse(request.body) as Record<string, string> : null;
     requests.push({ path, body });
-    if (path === "/api/personas") return Response.json([{ id: "speaker-1", speakerName: "Alex", sourceCount: 1 }]);
+    if (path === "/api/personas") return Response.json([options.authored
+      ? { id: "speaker-1", speakerName: "Socrates", kind: "authored", sourceCount: 0 }
+      : { id: "speaker-1", speakerName: "Alex", sourceCount: 1 }]);
     if (path === "/api/arena/models") return Response.json({ models: options.models ?? candidates, defaultModel: "test:judge", warnings: [] });
     if (path === "/api/arenas") { snapshot = initial(); return Response.json(snapshot, { status: 201 }); }
     if (path === `/api/arenas/${snapshot.id}/prepare`) {
@@ -193,4 +195,12 @@ test("Arena requires at least four distinct model IDs before preparing", async (
   assert.match(app.element("arena-model-hint").textContent, /3 distinct models available/);
   await app.prepare();
   assert.equal(app.requests.filter(request => request.path === "/api/arenas").length, 0);
+});
+
+test("Arena identifies authored personas and prepares them without source records", async () => {
+  const app = await ui({ authored: true });
+  assert.match(textOf(app.element("arena-speaker-options")), /Socrates Authored persona/);
+  assert.doesNotMatch(textOf(app.element("arena-speaker-options")), /0 sources/);
+  await app.prepare();
+  assert.equal(app.requests.find(request => request.path === "/api/arenas")?.body?.speakerId, "speaker-1");
 });

@@ -21,9 +21,18 @@ class SpeechLauncherTests(unittest.TestCase):
         self.root_patch = patch.object(launcher, "ROOT", self.root)
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
+        self.state_patch = patch.object(launcher, "STATE", self.root / ".speech")
+        self.state_patch.start()
+        self.addCleanup(self.state_patch.stop)
         self.environment = patch.dict(os.environ, {"PATH": os.environ["PATH"]}, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)
+
+    def provision_worker(self, name):
+        binary = launcher.STATE / "runtime/bin" / launcher.MODELS[name][1]
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.touch()
+        launcher.model_directory(name).mkdir(parents=True, exist_ok=True)
 
     def test_node_env_file_parsing_and_shell_precedence(self):
         self.assertEqual(launcher.tts_provider(), "local")
@@ -50,9 +59,27 @@ class SpeechLauncherTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, expected):
                     launcher.tts_provider(require_credentials=True)
 
+    def test_missing_runtime_or_weights_fail_before_any_worker_starts(self):
+        for missing in ("asr_binary", "asr_weights", "tts_binary", "tts_weights"):
+            with self.subTest(missing=missing):
+                self.provision_worker("nemotron")
+                self.provision_worker("voxtral")
+                name = "nemotron" if missing.startswith("asr") else "voxtral"
+                if missing.endswith("binary"):
+                    (launcher.STATE / "runtime/bin" / launcher.MODELS[name][1]).unlink()
+                else:
+                    launcher.model_directory(name).rmdir()
+                with patch.object(launcher, "tts_provider", return_value="local"), patch.object(launcher.subprocess, "Popen") as popen:
+                    with self.assertRaisesRegex(SystemExit, "Run npm run speech:setup once in this checkout"):
+                        launcher.start("nemotron")
+                popen.assert_not_called()
+
     def test_worker_selection_and_shutdown(self):
-        for provider, count in [("local", 3), ("elevenlabs", 2)]:
+        for provider, count in [("elevenlabs", 2), ("local", 3)]:
             with self.subTest(provider=provider):
+                self.provision_worker("qwen")
+                if provider == "local":
+                    self.provision_worker("voxtral")
                 children = [Mock() for _ in range(count)]
                 for child in children:
                     child.wait.return_value = 0

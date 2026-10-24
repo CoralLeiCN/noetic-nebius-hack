@@ -53,7 +53,7 @@
       radio.type = "radio"; radio.name = "arena-speaker"; radio.value = speaker.id;
       radio.checked = speaker.id === speakerId; radio.required = true;
       radio.addEventListener("change", () => { speakerId = speaker.id; render(); });
-      const copy = node("span"); copy.append(node("strong", speaker.speakerName), node("small", `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
+      const copy = node("span"); copy.append(node("strong", speaker.speakerName), node("small", speaker.kind === "authored" ? "Authored persona" : `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
       card.append(radio, copy); $("arena-speaker-options").append(card);
     }
     $("arena-speaker-empty").hidden = Boolean(speakers.length);

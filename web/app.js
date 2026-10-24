@@ -30,9 +30,18 @@ let personaCatalogError = "";
 function speakerKey(name) { return name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(); }
 function personaFileUrl(id) { return `/api/personas/${encodeURIComponent(id)}/files/persona.md`; }
 function personaControls() {
+  const standalone = !selected && selectedPersona?.kind === "authored";
+  $("build-persona").hidden = standalone;
   $("build-persona").disabled = !selected || loadingPersona || buildingPersona;
   $("build-persona").textContent = buildingPersona ? "Building speaker persona…" : selectedPersona ? "Update speaker persona" : "Build speaker persona";
   $("debate-this-speaker").disabled = !selectedPersona || loadingPersona;
+  for (const button of document.querySelectorAll("[data-view]")) {
+    const unavailable = standalone && button.dataset.view !== "persona";
+    button.hidden = unavailable;
+    button.disabled = unavailable;
+  }
+  for (const hint of document.querySelectorAll("#record-view > .hint")) hint.hidden = standalone;
+  $("sources").hidden = standalone;
 }
 async function refreshPersonas() {
   personas = await api("/api/personas");
@@ -70,7 +79,8 @@ async function refresh(preferredId) {
     const records = await api("/api/videos");
     try { await refreshPersonas(); }
     catch (error) { personaCatalogError = `Could not load speaker personas. ${error.message}`; }
-    $("record-count").textContent = `${records.length} record${records.length === 1 ? "" : "s"}`;
+    const authored = personas.filter(persona => persona.kind === "authored");
+    $("record-count").textContent = `${records.length} record${records.length === 1 ? "" : "s"}${authored.length ? ` · ${authored.length} authored persona${authored.length === 1 ? "" : "s"}` : ""}`;
     $("record-list").replaceChildren();
     for (const record of records) {
       const card = element("button", undefined, "record-card");
@@ -81,18 +91,32 @@ async function refresh(preferredId) {
       card.addEventListener("click", () => { void select(record.id); });
       $("record-list").append(card);
     }
-    $("empty").hidden = Boolean(records.length);
-    if (records.length) await select(preferredId || (records.some(record => record.id === selected?.id) ? selected.id : records[0].id));
+    for (const persona of authored) {
+      const card = element("button", undefined, "record-card");
+      card.type = "button";
+      card.dataset.id = persona.id;
+      card.setAttribute("aria-pressed", String(!selected && persona.id === selectedPersona?.id));
+      card.append(element("strong", persona.speakerName), element("span", "Authored persona"));
+      card.addEventListener("click", () => { void selectPersona(persona.id); });
+      $("record-list").append(card);
+    }
+    $("empty").hidden = Boolean(records.length || authored.length);
+    const preferred = preferredId || selected?.id || selectedPersona?.id;
+    if (authored.some(persona => persona.id === preferred)) await selectPersona(preferred);
+    else if (records.length) await select(records.some(record => record.id === preferred) ? preferred : records[0].id);
+    else if (authored.length) await selectPersona(authored[0].id);
     else { selected = null; selectedPersona = null; loadingPersona = false; personaControls(); $("record-view").hidden = true; }
   } catch (error) { showError("library-error", error.message); }
 }
 
 async function select(id, requestedPersona = null) {
   const version = ++selectionVersion;
+  const leavingStandalone = !selected && selectedPersona?.kind === "authored";
   try {
     const record = await api(`/api/videos/${encodeURIComponent(id)}`);
     if (version !== selectionVersion) return;
     stopSpeech();
+    if (leavingStandalone && !requestedPersona) currentView = "summary";
     selected = record;
     selectedPersona = requestedPersona;
     loadingPersona = !requestedPersona;
@@ -134,8 +158,40 @@ async function select(id, requestedPersona = null) {
   } catch (error) { if (version === selectionVersion) showError("library-error", error.message); }
 }
 
+async function selectPersona(id) {
+  const version = ++selectionVersion;
+  try {
+    const persona = await api(`/api/personas/${encodeURIComponent(id)}`);
+    if (version !== selectionVersion) return;
+    currentView = "persona";
+    if (persona.sourceIds.length) return await select(persona.sourceIds[0], persona);
+    if (persona.kind !== "authored") throw new Error("This persona has no source record to review.");
+    stopSpeech();
+    selected = null;
+    selectedPersona = persona;
+    loadingPersona = false;
+    showError("library-error", "");
+    showError("persona-error", "");
+    $("persona-status").textContent = "Authored persona supplied for simulated debate practice.";
+    $("empty").hidden = true;
+    $("record-view").hidden = false;
+    $("record-speaker").textContent = persona.speakerName.toUpperCase();
+    $("record-title").textContent = `${persona.speakerName} persona`;
+    for (const card of document.querySelectorAll(".record-card")) card.setAttribute("aria-pressed", String(card.dataset.id === id));
+    $("sources").replaceChildren();
+    $("player").pause();
+    $("player").hidden = true;
+    $("player").removeAttribute("src");
+    $("limitation-list").replaceChildren();
+    for (const note of persona.analysis.limitations) $("limitation-list").append(element("li", note));
+    personaControls();
+    await render();
+  } catch (error) { if (version === selectionVersion) showError("library-error", error.message); }
+}
+
 async function render() {
-  if (!selected) return;
+  if (!selected && !selectedPersona) return;
+  if (!selected) currentView = "persona";
   stopSpeech();
   const version = ++renderVersion;
   const record = selected;
@@ -147,7 +203,8 @@ async function render() {
   if (currentView === "persona") {
     if (selectedPersona) {
       $("download").href = personaFileUrl(selectedPersona.id);
-      content.append(element("p", `Built from ${selectedPersona.sourceCount} saved source${selectedPersona.sourceCount === 1 ? "" : "s"} · ${new Date(selectedPersona.createdAt).toLocaleString()}`, "hint"), element("pre", selectedPersona.markdown));
+      const provenance = selectedPersona.kind === "authored" ? "Authored persona" : `Built from ${selectedPersona.sourceCount} saved source${selectedPersona.sourceCount === 1 ? "" : "s"}`;
+      content.append(element("p", `${provenance} · ${new Date(selectedPersona.createdAt).toLocaleString()}`, "hint"), element("pre", selectedPersona.markdown));
     } else content.append(element("p", loadingPersona ? "Loading speaker persona…" : "This speaker has no saved persona yet. Build a persona to use their vocabulary, speaking style and debate habits in practice."));
   } else if (currentView === "summary") {
     for (const section of record.analysis.summary) {
@@ -210,12 +267,7 @@ $("debate-this-speaker").addEventListener("click", () => {
   if (selectedPersona) document.dispatchEvent(new CustomEvent("choose-debate-speaker", { detail: selectedPersona.id }));
 });
 document.addEventListener("review-speaker-persona", async event => {
-  try {
-    const persona = await api(`/api/personas/${encodeURIComponent(event.detail)}`);
-    if (!persona.sourceIds.length) throw new Error("This persona has no source record to review.");
-    currentView = "persona";
-    await select(persona.sourceIds[0], persona);
-  } catch (error) { showError("library-error", error.message); }
+  await selectPersona(event.detail);
 });
 $("build-persona").addEventListener("click", async () => {
   if (!selected || loadingPersona || buildingPersona) return;

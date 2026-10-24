@@ -12,9 +12,11 @@ const practiceModels = [
   { id: "nvidia/Nemotron-3_5-Lightning", name: "Nemotron-3.5-Lightning", family: "Nemotron" },
   { id: "google/gemma-4-31B-it", name: "Gemma-4-31B-it", family: "Gemma" },
   { id: "Qwen/Qwen3.8-27B", name: "Qwen3.8-27B", family: "Qwen" },
+  { id: "meta-models/muse-spark-open", name: "Muse Spark Open", family: "Muse" },
+  { id: "zai-org/GLM-5.3-Flash", name: "GLM 5.3 Flash", family: "GLM" },
 ];
 
-test("model discovery curates five choices, preserves labels, deduplicates IDs and caches results", async t => {
+test("model discovery curates seven choices, preserves labels, deduplicates IDs and caches results", async t => {
   let requests = 0;
   const server = createServer((request, response) => {
     requests++;
@@ -26,6 +28,7 @@ test("model discovery curates five choices, preserves labels, deduplicates IDs a
       practiceModels[0], { id: "deepseek-ai/DeepSeek-V4.1-Flash" },
       { id: "MiniMaxAI/MiniMax-M3" }, { id: "nvidia/Nemotron-3.5-Lightning" },
       { id: "Qwen/Qwen3.8-27B-Fast" }, { id: "other/ignored-model" },
+      { id: "meta-models/Muse-Spark-Open" }, { id: "zai-org/GLM-5.3" },
       { id: "other/configured-model" }, { id: "deepseek-ai/<invalid>" }, { id: null }, null,
     ] }));
   });
@@ -39,10 +42,13 @@ test("model discovery curates five choices, preserves labels, deduplicates IDs a
   assert.deepEqual(first.models, practiceModels);
   assert.equal(first.defaultModel, "MiniMaxAI/MiniMax-M3.1-Flash");
   first.models.length = 0;
-  assert.equal((await catalog.list()).models.length, 5);
+  assert.equal((await catalog.list()).models.length, 7);
+  assert.equal((await catalog.select()).id, "MiniMaxAI/MiniMax-M3.1-Flash");
   for (const model of practiceModels) assert.deepEqual(await catalog.select(model.id), model);
   await assert.rejects(catalog.select("deepseek-ai/DeepSeek-V4.1-Flash"), /available model/);
   await assert.rejects(catalog.select("unknown/model"), /available model/);
+  await assert.rejects(catalog.select("meta-models/Muse-Spark-Open"), /available model/);
+  await assert.rejects(catalog.select("zai-org/GLM-5.3"), /available model/);
   assert.equal(requests, 1);
 });
 
@@ -52,8 +58,9 @@ test("practice only offers available curated models and defaults to the first av
     const config = () => ({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret" });
     for (const preferred of [undefined, "other/configured-model", practiceModels[0]!.id]) {
       const list = await new ModelCatalog(config, () => preferred).list();
-      assert.deepEqual(list.models, practiceModels.slice(3));
+      assert.deepEqual(list.models, practiceModels.slice(3, 5));
       assert.equal(list.defaultModel, "google/gemma-4-31B-it");
+      assert.equal((await new ModelCatalog(config, () => preferred).select()).id, "google/gemma-4-31B-it");
     }
   } finally { await fixture.close(); }
 });
@@ -64,6 +71,7 @@ test("no matching practice models returns an empty catalog without inventing ava
     const catalog = new ModelCatalog(() => ({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret" }), () => "other/configured-model");
     assert.deepEqual(await catalog.list(), { models: [], defaultModel: null });
     await assert.rejects(catalog.select(practiceModels[0]!.id), /available model/);
+    await assert.rejects(catalog.select(), /available model/);
   } finally { await fixture.close(); }
 });
 

@@ -31,10 +31,14 @@ Requirements: an Apple Silicon Mac, Xcode, `uv`, `git`, `ffmpeg`, Node.js 24 or 
 
 ```sh
 npm run speech:setup
-npm run speech:start
+npm run start:web
 ```
 
-Keep `speech:start` running in a separate terminal. It starts the speech API on `127.0.0.1:8764`, ASR on `127.0.0.1:8765` and, in local mode, TTS on `127.0.0.1:8766`. ElevenLabs mode starts only ASR and the API. The launcher stops all child processes on exit or a child failure. It selects matching checkpoint IDs for the API and workers, including when `--asr qwen` is supplied. Local models remain loaded between requests. Local mode uses no cloud inference or speech API key.
+`start:web` builds once, starts the speech API and workers, waits up to two minutes for `/health` to report readiness, then starts the web app. It reuses an existing speech service at `SPEECH_SERVICE_URL` without stopping that service on exit. When launching speech itself, `SPEECH_PORT` must match that URL's port; if unset, it is derived from the URL. Ctrl+C, a child failure or a readiness timeout cleans up processes owned by this command. Missing runtime files produce a `speech:setup` instruction before any workers start. Use `npm run start:web:only` for the web server alone, including on machines without MLX support.
+
+For speech without the web app, use `npm run speech:start`. It starts the speech API on `127.0.0.1:8764`, ASR on `127.0.0.1:8765` and, in local mode, TTS on `127.0.0.1:8766`. ElevenLabs mode starts only ASR and the API. The launcher stops all child processes on exit or a child failure. It selects matching checkpoint IDs for the API and workers, including when `--asr qwen` is supplied. `npm run start:web -- --asr qwen` also selects Qwen when launching its own speech service. Local models remain loaded between requests. Local mode uses no cloud inference or speech API key.
+
+The ignored `.speech/` runtime and model weights belong to the checkout where setup ran. To avoid downloading them in every worktree, keep `npm run speech:start` running in that checkout; `npm run start:web` in another worktree reuses the service. Select a different web `PORT` for each concurrently running worktree.
 
 `GET http://127.0.0.1:8764/health` checks that each configured local worker advertises its expected model ID. In ElevenLabs mode, the TTS entry reports configuration readiness only: it does not contact ElevenLabs, generate billable audio, or verify credentials, voice access or account quota. An unavailable local worker yields HTTP 503 and `ready: false`. If the required MLX workers are already running, start just the API with `npm run speech:serve`.
 
@@ -52,7 +56,7 @@ ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 
 `ELEVENLABS_API_KEY` is required for ElevenLabs mode. `ELEVENLABS_VOICE_ID` is optional and defaults to `JBFqnCBsd6RMkjVDRZzb` when blank or unset. To use a different voice, set a voice ID accessible to your ElevenLabs account. `ELEVENLABS_MODEL_ID` is optional and defaults to `eleven_multilingual_v2`. These values are server configuration; the browser never receives the key. Speech synthesis sends the selected text to ElevenLabs and uses your account's quota. Microphone and audio-file transcription continue to run locally.
 
-Stop and restart `npm run speech:start` after changing the settings. Shell environment variables take precedence over `.env`, and the launcher uses Node's environment-file parsing rules. If using `speech:serve` directly, restart that process instead. The web app and CLI keep the same speech URL and WAV response format. The API requests 24 kHz PCM from ElevenLabs and wraps it as a mono WAV for existing playback and file output.
+Stop and restart the command that owns speech (`npm run start:web` or `npm run speech:start`) after changing the settings. Shell environment variables take precedence over `.env`, and the launcher uses Node's environment-file parsing rules. A web launcher that reused an existing speech service does not reconfigure it. If using `speech:serve` directly, restart that process instead. The web app and CLI keep the same speech URL and WAV response format. The API requests 24 kHz PCM from ElevenLabs and wraps it as a mono WAV for existing playback and file output.
 
 To switch back, set `TTS_PROVIDER=local` (the default when unset), run `npm run speech:setup` if Voxtral weights have not been downloaded, and restart the service. `LOCAL_TTS_VOICE` selects the local voice and defaults to `neutral_female`. The service does not fall back to another provider when synthesis fails. See the [ElevenLabs text-to-speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) for voice and model selection.
 

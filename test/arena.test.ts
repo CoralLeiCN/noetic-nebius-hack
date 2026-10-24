@@ -48,8 +48,8 @@ test("Arena API compares four random models through Practice and retries only fa
     completedOpenings++;
     return `Candidate opening ${completedOpenings}`;
   };
-  const first = await providerFixture(respond, ["model-a", "model-b"]);
-  const second = await providerFixture(respond, ["model-c", "model-d"]);
+  const first = await providerFixture(respond, ["deepseek-ai/DeepSeek-V4.1-Flash-1017", "MiniMaxAI/MiniMax-M3.1-Flash"]);
+  const second = await providerFixture(respond, ["meta-models/muse-spark-open", "zai-org/GLM-5.3-Flash"]);
   const catalog = new ArenaCatalog({ KEY_A: "secret-a", KEY_B: "secret-b", ARENA_PROVIDERS: JSON.stringify([
     { id: "first", name: "First", baseUrl: first.baseUrl, apiKeyEnv: "KEY_A" },
     { id: "second", name: "Second", baseUrl: second.baseUrl, apiKeyEnv: "KEY_B" },
@@ -66,7 +66,7 @@ test("Arena API compares four random models through Practice and retries only fa
     assert.equal(choices.models.length, 4);
     assert.doesNotMatch(JSON.stringify(choices), /secret-|baseUrl|apiKey/);
     assert.equal((await post("/api/arenas", { speakerId: record.id })).status, 404);
-    const setup = { speakerId: persona.id, judgeModel: "second:model-d" };
+    const setup = { speakerId: persona.id, judgeModel: "second:zai-org/GLM-5.3-Flash" };
     assert.equal((await post("/api/arenas", { ...setup, judgeModel: "unknown" })).status, 400);
     assert.equal((await post("/api/arenas", { ...setup, apiKey: "bad" })).status, 400);
     const creation = await post("/api/arenas", setup); assert.equal(creation.status, 201);
@@ -117,7 +117,7 @@ test("Arena API compares four random models through Practice and retries only fa
     const judgments = requests.filter(request => JSON.stringify(request.body.input).includes("Evaluate only the target speech"));
     for (const request of judgments) {
       const input = JSON.stringify(request.body.input);
-      assert.equal(request.body.model, "model-d");
+      assert.equal(request.body.model, "zai-org/GLM-5.3-Flash");
       assert.match(input, /precedingSpeeches.*\[\]/);
       assert.doesNotMatch(input, /# Persona: Direct parliamentary debater|TASK: SPEECH|providerName|providerId/);
     }

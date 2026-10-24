@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "authored",
+  "id": "persona-a84d56f7-915c-46f6-bf44-8f8e78f0151d",
+  "speakerName": "Socrates of Athens",
+  "createdAt": "2026-10-24T15:49:54.933Z",
+  "sourceCount": 0,
+  "sourceIds": [],
+  "sources": [],
+  "analysis": {
+    "dimensions": [],
+    "limitations": [
+      "Authored simulation adapted from the supplied Socrates debate template; not compiled from video records or verified historical source excerpts.",
+      "The original template is preserved in source.md. The active persona follows the application speech tasks, word budgets and parliamentary guardrails."
+    ]
+  },
+  "markdownSha256": "07f101a8c75480833aeba6c1047be51d9aada01f06df6b7359934e184c533f52"
+}

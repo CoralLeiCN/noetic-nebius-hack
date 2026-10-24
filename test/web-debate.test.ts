@@ -43,6 +43,45 @@ async function listening(service: VideoService, debates: DebateService, models?:
   } };
 }
 
+test("Practice API enforces the allowlist for explicit and omitted model selections", async () => {
+  const { root, service, persona } = await sources();
+  const muse = "meta-models/muse-spark-open";
+  const glm = "zai-org/GLM-5.3-Flash";
+  const selected: (string | undefined)[] = [];
+  const fixture = await providerFixture(() => "unused", ["other/model", glm, muse]);
+  const debates = new DebateService(service, async model => {
+    selected.push(model);
+    return { prepare: async () => POSITIONS, opening: async () => "Opening", reply: async () => "Reply", resetPractice() {}, dispose: async () => {} };
+  });
+  const catalog = new ModelCatalog(() => ({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret" }), () => "other/model");
+  const web = await listening(service, debates, catalog);
+  try {
+    const response = await web.post("/api/debates", { speakerId: persona.id, model: "other/model" });
+    assert.equal(response.status, 400);
+    assert.deepEqual(selected, []);
+    const defaultResponse = await web.post("/api/debates", { speakerId: persona.id });
+    assert.equal(defaultResponse.status, 201);
+    assert.equal((await defaultResponse.json()).model.id, muse);
+    const explicitResponse = await web.post("/api/debates", { speakerId: persona.id, model: glm });
+    assert.equal(explicitResponse.status, 201);
+    assert.equal((await explicitResponse.json()).model.id, glm);
+    assert.deepEqual(selected, [muse, glm]);
+  } finally { await web.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("Practice API refuses an omitted model when no allowed models are available", async () => {
+  const { root, service, persona } = await sources();
+  const fixture = await providerFixture(() => "unused", ["other/model"]);
+  const debates = new DebateService(service, async () => { assert.fail("No agent should start for an unavailable model"); });
+  const catalog = new ModelCatalog(() => ({ baseUrl: fixture.baseUrl, apiKey: "fixture-secret" }), () => "other/model");
+  const web = await listening(service, debates, catalog);
+  try {
+    const response = await web.post("/api/debates", { speakerId: persona.id });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /available model/);
+  } finally { await web.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("web API runs a speaker debate through the actual SDK, including failed-turn recovery", { timeout: 60_000 }, async () => {
   const { root, service, record, persona } = await sources();
   const modelIds = ["deepseek-ai/DeepSeek-V4.1-Flash-1017", "MiniMaxAI/MiniMax-M3.1-Flash"];

@@ -148,7 +148,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
       }
       if (request.method === "POST" && url.pathname === "/api/debates") {
         const body = await jsonBody(request, ["speakerId"], ["model"]);
-        const model = body.model === undefined ? undefined : await models.select(body.model);
+        const model = await models.select(body.model);
         return json(response, 201, await debates.create(body.speakerId!, model));
       }
       const debateRoute = /^\/api\/debates\/([a-f0-9-]{36})(?:\/(prepare|choose|respond|retry|judge|end))?$/.exec(url.pathname);

@@ -237,7 +237,7 @@ export class SpeechServiceClient implements SpeechApi {
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
       if (error instanceof RecordError) throw error;
-      throw new RecordError(503, "The speech microservice is unavailable. Run npm run speech:start.");
+      throw new RecordError(503, "The speech microservice is unavailable. Restart npm run start:web, or run npm run speech:start separately.");
     }
   }
 
