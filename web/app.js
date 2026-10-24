@@ -4,6 +4,24 @@ let currentView = "summary";
 let requestController = null;
 let selectionVersion = 0;
 let renderVersion = 0;
+let personas = [];
+let selectedPersona = null;
+let loadingPersona = false;
+let buildingPersona = false;
+let personaCatalogError = "";
+
+function speakerKey(name) { return name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(); }
+function personaFileUrl(id) { return `/api/personas/${encodeURIComponent(id)}/files/persona.md`; }
+function personaControls() {
+  $("build-persona").disabled = !selected || loadingPersona || buildingPersona;
+  $("build-persona").textContent = buildingPersona ? "Building speaker persona…" : selectedPersona ? "Update speaker persona" : "Build speaker persona";
+  $("debate-this-speaker").disabled = !selectedPersona || loadingPersona;
+}
+async function refreshPersonas() {
+  personas = await api("/api/personas");
+  personaCatalogError = "";
+  document.dispatchEvent(new CustomEvent("personas-updated", { detail: personas }));
+}
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -33,7 +51,8 @@ async function refresh(preferredId) {
   showError("library-error", "");
   try {
     const records = await api("/api/videos");
-    document.dispatchEvent(new CustomEvent("speakers-updated", { detail: records }));
+    try { await refreshPersonas(); }
+    catch (error) { personaCatalogError = `Could not load speaker personas. ${error.message}`; }
     $("record-count").textContent = `${records.length} record${records.length === 1 ? "" : "s"}`;
     $("record-list").replaceChildren();
     for (const record of records) {
@@ -46,19 +65,22 @@ async function refresh(preferredId) {
       $("record-list").append(card);
     }
     $("empty").hidden = Boolean(records.length);
-    if (preferredId || !selected || !records.some(record => record.id === selected.id)) {
-      if (records.length) await select(preferredId || records[0].id);
-      else { selected = null; $("record-view").hidden = true; }
-    }
+    if (records.length) await select(preferredId || (records.some(record => record.id === selected?.id) ? selected.id : records[0].id));
+    else { selected = null; selectedPersona = null; loadingPersona = false; personaControls(); $("record-view").hidden = true; }
   } catch (error) { showError("library-error", error.message); }
 }
 
-async function select(id) {
+async function select(id, requestedPersona = null) {
   const version = ++selectionVersion;
   try {
     const record = await api(`/api/videos/${encodeURIComponent(id)}`);
     if (version !== selectionVersion) return;
     selected = record;
+    selectedPersona = requestedPersona;
+    loadingPersona = !requestedPersona;
+    showError("persona-error", personaCatalogError);
+    $("persona-status").textContent = buildingPersona ? "Persona analysis is running. You can keep reviewing sources." : "";
+    personaControls();
     showError("library-error", "");
     $("empty").hidden = true;
     $("record-view").hidden = false;
@@ -79,6 +101,18 @@ async function select(id) {
     $("limitation-list").replaceChildren();
     for (const note of ["Derived from supplied captions; not independently verified against audio.", ...record.analysis.limitations]) $("limitation-list").append(element("li", note));
     await render();
+    if (!requestedPersona) {
+      try {
+        const available = personas.find(persona => speakerKey(persona.speakerName) === speakerKey(record.speakerName));
+        const persona = available ? await api(`/api/personas/${encodeURIComponent(available.id)}`) : null;
+        if (version !== selectionVersion) return;
+        selectedPersona = persona;
+      } catch (error) {
+        if (version === selectionVersion) showError("persona-error", `Could not load this speaker’s persona. ${error.message}`);
+      } finally {
+        if (version === selectionVersion) { loadingPersona = false; personaControls(); await render(); }
+      }
+    }
   } catch (error) { if (version === selectionVersion) showError("library-error", error.message); }
 }
 
@@ -90,8 +124,13 @@ async function render() {
   content.replaceChildren();
   for (const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed", String(button.dataset.view === currentView));
   const files = { summary: "summary.md", remarks: "speaker-remarks.md", transcript: "transcript.txt", record: "record.json" };
-  $("download").href = fileUrl(files[currentView]);
-  if (currentView === "summary") {
+  $("download").hidden = currentView === "persona" && !selectedPersona;
+  if (currentView === "persona") {
+    if (selectedPersona) {
+      $("download").href = personaFileUrl(selectedPersona.id);
+      content.append(element("p", `Built from ${selectedPersona.sourceCount} saved source${selectedPersona.sourceCount === 1 ? "" : "s"} · ${new Date(selectedPersona.createdAt).toLocaleString()}`, "hint"), element("pre", selectedPersona.markdown));
+    } else content.append(element("p", loadingPersona ? "Loading speaker persona…" : "This speaker has no saved persona yet. Build a persona to use their vocabulary, speaking style and debate habits in practice."));
+  } else if (currentView === "summary") {
     for (const section of record.analysis.summary) {
       const block = element("section", undefined, "summary-section");
       block.append(element("h3", section.title), element("p", section.text));
@@ -129,6 +168,7 @@ async function render() {
       if (version === renderVersion) content.replaceChildren(element("pre", text));
     } catch (error) { if (version === renderVersion) content.replaceChildren(element("p", error.message, "error")); }
   }
+  if (currentView !== "persona") $("download").href = fileUrl(files[currentView]);
 }
 
 for (const button of document.querySelectorAll("[data-input]")) button.addEventListener("click", () => {
@@ -147,9 +187,43 @@ for (const button of document.querySelectorAll("[data-input]")) button.addEventL
 for (const button of document.querySelectorAll("[data-view]")) button.addEventListener("click", () => { currentView = button.dataset.view; void render(); });
 $("refresh").addEventListener("click", () => { void refresh(); });
 $("debate-this-speaker").addEventListener("click", () => {
-  if (selected) document.dispatchEvent(new CustomEvent("choose-debate-speaker", { detail: selected.id }));
+  if (selectedPersona) document.dispatchEvent(new CustomEvent("choose-debate-speaker", { detail: selectedPersona.id }));
 });
-document.addEventListener("review-speaker-source", event => { void select(event.detail); });
+document.addEventListener("review-speaker-persona", async event => {
+  try {
+    const persona = await api(`/api/personas/${encodeURIComponent(event.detail)}`);
+    if (!persona.sourceIds.length) throw new Error("This persona has no source record to review.");
+    currentView = "persona";
+    await select(persona.sourceIds[0], persona);
+  } catch (error) { showError("library-error", error.message); }
+});
+$("build-persona").addEventListener("click", async () => {
+  if (!selected || loadingPersona || buildingPersona) return;
+  const speakerName = selected.speakerName;
+  buildingPersona = true;
+  showError("persona-error", "");
+  $("persona-status").textContent = `Analyzing all saved sources for ${speakerName} and writing their persona…`;
+  personaControls();
+  try {
+    const persona = await api("/api/personas", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ speakerName }),
+    });
+    personas = [{ id: persona.id, speakerName: persona.speakerName, createdAt: persona.createdAt, sourceCount: persona.sourceCount },
+      ...personas.filter(saved => speakerKey(saved.speakerName) !== speakerKey(persona.speakerName))];
+    document.dispatchEvent(new CustomEvent("personas-updated", { detail: personas }));
+    if (selected && speakerKey(selected.speakerName) === speakerKey(speakerName)) {
+      selectedPersona = persona;
+      currentView = "persona";
+      $("persona-status").textContent = "Persona saved. Review the Markdown below, then start practice.";
+      await render();
+    } else $("persona-status").textContent = `Persona saved for ${speakerName}. Select one of their sources to review it.`;
+    try { await refreshPersonas(); }
+    catch (error) { showError("persona-error", `Persona saved, but the speaker list could not be refreshed. ${error.message}`); }
+  } catch (error) {
+    $("persona-status").textContent = "Persona generation failed. You can retry with the build button.";
+    showError("persona-error", error.message);
+  } finally { buildingPersona = false; personaControls(); }
+});
 $("cancel").addEventListener("click", () => requestController?.abort());
 $("upload-form").addEventListener("submit", async event => {
   event.preventDefault();

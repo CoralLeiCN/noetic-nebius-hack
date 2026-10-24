@@ -1,12 +1,20 @@
 # Debate Practice Assistant Specification
 
-Status: CLI and web debate practice implemented, including source-based speaker selection, plus a web Arena for model comparisons and provisional judging. Local SDK, HTTP API and CLI verification is recorded in the test suite; live provider compatibility requires configured credentials and endpoint verification.
+Status: CLI and web debate practice implemented, including compiled speaker persona selection, plus a web Arena for model comparisons and provisional judging. Local SDK, HTTP API and CLI verification is recorded in the test suite; live provider compatibility requires configured credentials and endpoint verification.
 
 Product intent: [intent.md](intent.md). Technology choices and provider configuration: [tech-stack.md](tech-stack.md).
 
 ## Goal
 
 Help a human practice debating a topic against an assistant that maintains an opposing position. The first version supports an informal exchange; a complete competition format remains in the backlog.
+
+## Source-to-persona workflow
+
+The source library collects video references and supplied transcripts. After extracting and validating a named speaker's remarks, use the Codex SDK with the existing ChatGPT OAuth login to analyze all saved records matching that normalized speaker name. Save the result as `data/persona-<uuid>/persona.md`, with metadata in `persona.json`. This compilation creates reusable prompt context; it does not fine-tune a model.
+
+The persona describes language and vocabulary preferences, sentence rhythm, tone and register, rhetorical devices, argument structure, evidence use, interaction and rebuttal habits, and treatment of uncertainty and values. Ground observations in source evidence, record confidence and limitations, and mark dimensions that the sources cannot establish. Do not infer acoustic voice characteristics from transcripts or invent the speaker's views on unrelated topics.
+
+The human can inspect and download the Markdown before practice. Adding sources does not silently change a persona: rebuild it, then start a new debate to use the new version. Practice receives only the saved persona as speaker context.
 
 ## Core workflow
 
@@ -47,13 +55,13 @@ The human can end the session at any time or start another topic. Ending does no
 
 ## Session behavior
 
-The web app first selects a saved, validated speaker source record alongside the topic. Each record is a selectable opponent, labeled by speaker name and source title. The source library remains available for adding and reviewing records. The chosen record is copied into the debate context so later source selection cannot alter an active debate.
+The web app first selects a compiled speaker persona alongside the topic. The speaker selector lists the latest saved persona for each normalized speaker name. The source library remains available for adding and reviewing source records and rebuilding personas. The chosen persona Markdown is copied into the debate context so later source changes or persona rebuilds cannot alter an active debate.
 
 The human also chooses a model from the configured provider's live model list, initially limited to DeepSeek, MiniMax and any configured default model present in that list. The server caches discovery for five minutes and validates the selection before creating an agent. The same model is used for all session actions and restored with the session snapshot. Choosing a model in the web app requires only the provider base URL and API key; it does not require `NEBIUS_MODEL`.
 
-The opponent is explicitly labeled as a simulation. Its prompt includes bounded, complete source remarks with cue references, uncertainty notes and limitations. The model must not present generated arguments as the real speaker's statements or fabricate their position on an unrelated topic. The assigned side is a practice role. The interface displays both assignments, the source title and context coverage.
+The opponent is explicitly labeled as a simulation. Its prompt includes the saved persona Markdown, with guidance on communication patterns, confidence and limitations. Raw source remarks, transcripts and summaries are excluded from practice context. The model must not present generated arguments as the real speaker's statements or fabricate their position on an unrelated topic. The assigned side is a practice role. The interface displays both assignments and identifies the compiled persona.
 
-The web interface supports position regeneration, side selection, completed messages, failed-generation retries and ending during generation. Changing the topic or source starts a new debate. Refreshing the page restores the current session by ID while the server still holds it. Sessions expire after one hour of inactivity; server restart clears them.
+The web interface supports position regeneration, side selection, completed messages, failed-generation retries and ending during generation. Changing the topic or persona starts a new debate. Refreshing the page restores the current session by ID while the server still holds it. Sessions expire after one hour of inactivity; server restart clears them.
 
 | State | Allowed actions | Successful transition |
 | --- | --- | --- |
@@ -76,20 +84,22 @@ A generation error preserves the last confirmed topic, positions, assignments, a
 
 ## Arena
 
-Arena is the third web tab, alongside Practice and Source library. It evaluates models using the existing Practice agent's preparation, opening, and reply methods, including its source-attribution rules and bounded speaker context. It must not introduce a separate argument-generation prompt that makes the comparison unlike actual practice.
+Arena is the third web tab, alongside Practice and Source library. It evaluates models using the existing Practice agent's preparation, opening, and reply methods, including its simulation rules and saved persona context. It must not introduce a separate argument-generation prompt that makes the comparison unlike actual practice.
 
-The human selects a ready speaker, a topic, an affirmative model, a negative model, and a judge model. Model selections may use different server-configured providers; credentials remain on the server. The affirmative model prepares the shared motion and positions. The human reviews those positions before running the exchange. Both participants receive the same source context with their own assigned side.
+The human selects a compiled speaker persona, a topic, an affirmative model, a negative model, and a judge model. Model selections may use different server-configured providers; credentials remain on the server. The affirmative model prepares the shared motion and positions. The human reviews those positions before running the exchange. Both participants receive the same saved persona Markdown with their own assigned side; raw training sources are excluded.
 
 The initial exchange contains four contributions: an affirmative opening, a negative opening, an affirmative rebuttal, and a negative rebuttal. Completed contributions remain available if a later contribution fails. A retry resumes from the confirmed transcript; ending aborts work and suppresses late output. Provider and model selections are fixed for a session.
 
-After the exchange, the human can ask the selected judge to evaluate it. The judge receives the positions, source context, and completed transcript and returns validated scores from 0 to 100 for each side, together with a rationale. The UI visualizes those scores and clearly labels the evaluation provisional. The judge prompt contains a placeholder for the final criteria; invalid or failed judge output must not produce fabricated scores. A match's scores do not establish an overall ranking because models have different assigned sides and turn order.
+After the exchange, the human can ask the selected judge to evaluate it. The judge receives the positions, persona context, and completed transcript and returns validated scores from 0 to 100 for each side, together with a rationale. The UI visualizes those scores and clearly labels the evaluation provisional. The judge prompt contains a placeholder for the final criteria; invalid or failed judge output must not produce fabricated scores. A match's scores do not establish an overall ranking because models have different assigned sides and turn order.
 
 Arena sessions are held in memory and expire after one hour of inactivity. A server restart clears them. The interface can restore an existing session after a page reload while it is still held by the server.
 
 ## Technical requirements
 
 - Use Codex as the agent harness and the Codex SDK for programmatic interaction.
-- Use Nebius as the initial model API provider.
+- Use Nebius as the initial model API provider for source extraction and practice.
+- Use an existing Codex ChatGPT OAuth login for persona compilation, without falling back to the practice provider.
+- Persist a reviewable Markdown persona and load that file for practice instead of original source material.
 - Read the endpoint, API key, and model ID from environment variables.
 - Support changing to another compatible custom endpoint through configuration alone.
 - Keep credentials outside prompts, transcripts, committed files, and user-facing error messages.
@@ -108,6 +118,10 @@ The standalone [technology document](tech-stack.md) describes the implementation
 7. A Nebius integration check completes position generation, an opening, and at least two follow-up turns through the Codex SDK.
 8. Changing the configured base URL routes model requests to the new compatible endpoint without code changes or fallback to another provider.
 9. Missing configuration and authentication or protocol errors produce useful messages without exposing secrets.
+10. Source records compile into a Markdown persona with evidence, confidence and source limitations.
+11. Web practice requires a compiled persona and passes its saved Markdown, without raw source records, to the opponent.
+12. Multiple saved source records for the same normalized speaker name contribute to one compiled persona; rebuilding affects new sessions only.
+13. Persona compilation requires Codex ChatGPT OAuth and does not fall back to Nebius or an API-key login.
 
 ## Backlog
 

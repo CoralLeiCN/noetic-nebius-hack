@@ -11,7 +11,8 @@ import { createVideoServer } from "../src/server.js";
 import { VideoService } from "../src/video-service.js";
 import { loadConfig } from "../src/config.js";
 import { ModelCatalog } from "../src/models.js";
-import { POSITIONS, providerFixture } from "./fixture.js";
+import { PersonaService } from "../src/persona-service.js";
+import { POSITIONS, providerFixture, personaAnalysis } from "./fixture.js";
 
 async function sources() {
   const root = await mkdtemp(join(tmpdir(), "debate-web-test-"));
@@ -21,7 +22,9 @@ async function sources() {
   }) });
   const record = await service.create({ title: "Learning for everyone", speakerName: "Alex", sourceUrls: ["https://example.com/talk"],
     transcript: Buffer.from("0:05 Education should help everyone learn."), video: null }, new AbortController().signal);
-  return { root, service, record };
+  const personas = new PersonaService(service, { analyze: async (_name, records) => personaAnalysis(records) });
+  const persona = await personas.create(record.speakerName, new AbortController().signal);
+  return { root, service, record, persona };
 }
 async function listening(service: VideoService, debates: DebateService, models?: ModelCatalog) {
   const server = createVideoServer(service, undefined, debates, models);
@@ -40,7 +43,7 @@ async function listening(service: VideoService, debates: DebateService, models?:
 }
 
 test("web API runs a speaker debate through the actual SDK, including failed-turn recovery", { timeout: 60_000 }, async () => {
-  const { root, service, record } = await sources();
+  const { root, service, record, persona } = await sources();
   const modelIds = ["deepseek-ai/DeepSeek-V4.1-Flash", "MiniMaxAI/MiniMax-M3"];
   const fixture = await providerFixture((request, index) => JSON.stringify(request.body.input).includes("Create one debate motion") ? JSON.stringify(POSITIONS) :
     index === 2 ? { status: 503, body: "fixture-secret provider failure" } : `Argument ${index}`, modelIds);
@@ -51,15 +54,16 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     const catalog = await (await fetch(web.base + "/api/models")).json();
     assert.equal(catalog.models.length, 2);
     assert.doesNotMatch(JSON.stringify(catalog), /fixture-secret/);
-    for (const model of ["unknown/model", "", null]) assert.equal((await web.post("/api/debates", { speakerId: record.id, model })).status, 400);
+    for (const model of ["unknown/model", "", null]) assert.equal((await web.post("/api/debates", { speakerId: persona.id, model })).status, 400);
     assert.equal((await web.post("/api/debates", { speakerId: "missing" })).status, 404);
-    assert.equal((await web.post("/api/debates", { speakerId: record.id, extra: true })).status, 400);
-    const creation = await web.post("/api/debates", { speakerId: record.id, model: modelIds[0] });
+    assert.equal((await web.post("/api/debates", { speakerId: persona.id, extra: true })).status, 400);
+    const creation = await web.post("/api/debates", { speakerId: persona.id, model: modelIds[0] });
     assert.equal(creation.status, 201);
     const created = await creation.json() as Snapshot;
     assert.equal(created.speaker?.name, "Alex");
     assert.equal(created.model?.id, modelIds[0]);
-    assert.equal(created.speaker?.remarks[0]?.startSeconds, 5);
+    assert.equal(created.speaker?.personaMarkdown, persona.markdown);
+    assert.equal((await web.post("/api/debates", { speakerId: record.id, model: modelIds[0] })).status, 404);
     const route = `/api/debates/${created.id}`;
     assert.equal((await web.post(route + "/choose", { side: "affirmative" })).status, 409);
     for (const topic of [" ", "x".repeat(2001)]) assert.equal((await web.post(route + "/prepare", { topic })).status, 400);
@@ -81,8 +85,9 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     const next = await (await web.post(route + "/respond", { contribution: "What about personalized learning?" })).json() as Snapshot;
     assert.equal(next.messages.length, 5);
     const retryInput = JSON.stringify(fixture.requests[3]?.body.input);
-    assert.match(retryInput, /Education should help everyone learn/);
-    assert.match(retryInput, /recordId/);
+    assert.match(retryInput, /Prefer concrete accessible vocabulary/);
+    assert.match(retryInput, /personaId/);
+    assert.doesNotMatch(retryInput, /Education should help everyone learn|remarkIndexes/);
     assert.match(retryInput, /simulated debate opponent/);
     assert.match(retryInput, /assistantSide.*negative/);
     assert.equal(retryInput.match(/AI helps everyone learn/g)?.length, 1);
@@ -94,7 +99,7 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     assert.equal(crossOrigin.status, 403);
     assert.equal((await fetch(web.base + "/debate.js")).status, 200);
     assert.ok(fixture.requests.every(request => request.body.model === modelIds[0]));
-    const miniMax = await (await web.post("/api/debates", { speakerId: record.id, model: modelIds[1] })).json() as Snapshot;
+    const miniMax = await (await web.post("/api/debates", { speakerId: persona.id, model: modelIds[1] })).json() as Snapshot;
     assert.equal(miniMax.model?.family, "MiniMax");
     assert.equal((await web.post(`/api/debates/${miniMax.id}/prepare`, { topic: "Learning" })).status, 200);
     assert.equal(fixture.requests.at(-1)?.body.model, modelIds[1]);
@@ -103,7 +108,7 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
 });
 
 test("concurrent turns are rejected, sessions are isolated, and ending suppresses late model output", async () => {
-  const { root, service, record } = await sources();
+  const { root, service, record, persona } = await sources();
   let release!: (value: string) => void;
   let started!: () => void;
   let disposed = 0;
@@ -116,14 +121,14 @@ test("concurrent turns are rejected, sessions are isolated, and ending suppresse
   }));
   const web = await listening(service, debates);
   try {
-    const first = await debates.create(record.id);
-    const second = await debates.create(record.id);
+    const first = await debates.create(persona.id);
+    const second = await debates.create(persona.id);
     await debates.act(first.id, "prepare", "Learning");
     await debates.act(first.id, "choose", "negative");
     assert.equal(contexts[0]?.speaker?.name, "Alex");
     assert.equal(debates.get(second.id).messages.length, 0);
-    first.speaker!.remarks[0]!.quote = "Changed";
-    assert.equal(debates.get(first.id).speaker?.remarks[0]?.quote, "Education should help everyone learn.");
+    first.speaker!.personaMarkdown = "Changed";
+    assert.equal(debates.get(first.id).speaker?.personaMarkdown, persona.markdown);
     const route = `/api/debates/${first.id}`;
     const pending = web.post(route + "/respond", { contribution: "My argument" });
     await ready;
@@ -139,16 +144,12 @@ test("concurrent turns are rejected, sessions are isolated, and ending suppresse
   } finally { await web.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test("speaker excerpts keep complete quotes, attribution notes and cue references within a budget", async () => {
-  const { root, record } = await sources();
+test("practice context contains only the compiled persona and identity", async () => {
+  const { root, persona } = await sources();
   try {
-    record.analysis.remarks.unshift({ cueId: 1, quote: "x".repeat(25000), uncertain: true, note: "Uncertain speaker." });
-    const context = speakerContext(record);
-    assert.equal(context.excerpted, true);
-    assert.equal(context.totalRemarks, 2);
-    assert.equal(context.remarks.length, 1);
-    assert.equal(context.remarks[0]?.quote, "Education should help everyone learn.");
-    assert.equal(context.remarks[0]?.cueId, 1);
-    assert.ok(context.limitations.includes("Short excerpt."));
+    assert.deepEqual(speakerContext(persona), {
+      personaId: persona.id, name: "Alex", personaMarkdown: persona.markdown,
+    });
+    assert.doesNotMatch(JSON.stringify(speakerContext(persona)), /Education should help everyone learn|remarkIndexes|transcript/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

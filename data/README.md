@@ -1,4 +1,4 @@
-# Video records
+# Source records and speaker personas
 
 Store each video's source references, transcript and summarized remarks together in a separate folder under `data/`.
 
@@ -36,3 +36,22 @@ Use `npm run start:web` to upload and process new records through the Codex SDK 
 | Video | Source | Records |
 | --- | --- | --- |
 | Andy Burnham and Kemi Badenoch face off in first ever PMQs clash | [YouTube / PoliticsJOE](https://www.youtube.com/watch?v=xX9c2Vg2Z00) | [Video record](youtube-xX9c2Vg2Z00/README.md) |
+
+## Compiled speaker personas
+
+Use **Build speaker persona** in the source library after reviewing a speaker's records. The Codex SDK uses the existing ChatGPT OAuth login to analyze all source records with the same normalized speaker name. Each compiled version is saved in its own folder:
+
+```text
+data/
+  persona-<uuid>/
+    persona.md
+    persona.json
+```
+
+`persona.md` describes observed language, vocabulary, sentence rhythm, register, rhetoric, argument structure, evidence use, rebuttal habits and uncertainty, with confidence, limitations and evidence references. `persona.json` preserves compilation metadata, source fingerprints, validated supporting quotes and the Markdown checksum. Practice reads the saved Markdown as its speaker context; original transcripts, remarks and summaries remain training material in the library. Rebuild after adding sources, then start a new debate to use the updated persona. Previous versions remain available to existing sessions.
+
+| Speaker | Compiled persona | Training sources |
+| --- | --- | --- |
+| Andy Burnham | [Persona Markdown](persona-b69edf22-13f3-4ae8-b3a5-63462f0cd8f2/persona.md) | [Parliamentary exchange](youtube-xX9c2Vg2Z00/README.md) |
+
+The Andy Burnham persona was compiled through a live Codex OAuth request on October 24, 2026. It reflects one captioned exchange; its observations are scoped to that source.

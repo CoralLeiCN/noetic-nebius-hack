@@ -13,6 +13,7 @@ import { ArenaService, type ArenaAction } from "./arena-service.js";
 import { publicError } from "./errors.js";
 import { recordSchema, RecordError } from "./video-record.js";
 import { CodexVideoAnalyzer, VideoService, type CreateVideo } from "./video-service.js";
+import { PersonaService } from "./persona-service.js";
 
 const MAX_BODY = 102 * 1024 * 1024;
 function json(response: ServerResponse, status: number, body: unknown): void {
@@ -89,7 +90,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
   debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model))),
   models = new ModelCatalog(), arenaModels = new ArenaCatalog(),
   arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model)),
-    model => CodexArenaJudge.create(arenaModels.config(model)))) {
+    model => CodexArenaJudge.create(arenaModels.config(model))), personas = new PersonaService(service)) {
   let processing = false;
   const server = createServer(async (request, response) => {
     response.setHeader("x-content-type-options", "nosniff");
@@ -102,6 +103,24 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
       const url = new URL(request.url ?? "/", `http://${host}`);
       if (request.headers.origin && request.headers.origin !== url.origin) throw new RecordError(403, "Cross-origin requests are not allowed.");
       if (request.method === "GET" && url.pathname === "/api/models") return json(response, 200, await models.list());
+      if (request.method === "GET" && url.pathname === "/api/personas") return json(response, 200, await personas.list());
+      if (request.method === "POST" && url.pathname === "/api/personas") {
+        const body = await jsonBody(request, ["speakerName"]);
+        const controller = new AbortController();
+        const cancel = () => { if (!response.writableEnded) controller.abort(); };
+        request.once("aborted", cancel);
+        response.once("close", cancel);
+        try { return json(response, 201, await personas.create(body.speakerName!, controller.signal)); }
+        finally { request.off("aborted", cancel); response.off("close", cancel); }
+      }
+      const personaRoute = /^\/api\/personas\/([^/]+)(\/files\/persona\.md)?$/.exec(url.pathname);
+      if (request.method === "GET" && personaRoute) {
+        const persona = await personas.get(decodeURIComponent(personaRoute[1]!));
+        if (!personaRoute[2]) return json(response, 200, persona);
+        response.writeHead(200, { "content-type": "text/markdown; charset=utf-8", "content-disposition": 'attachment; filename="persona.md"' });
+        response.end(persona.markdown);
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/api/arena/models") return json(response, 200, await arenaModels.list());
       if (request.method === "POST" && url.pathname === "/api/arenas") {
         const body = await jsonBody(request, ["speakerId", "affirmativeModel", "negativeModel", "judgeModel"]);

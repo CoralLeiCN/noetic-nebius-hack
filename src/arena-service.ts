@@ -5,6 +5,7 @@ import type { ArenaModel } from "./arena-providers.js";
 import type { ArenaJudge, ArenaJudgment } from "./arena-judge.js";
 import { RecordError } from "./video-record.js";
 import type { VideoService } from "./video-service.js";
+import { PersonaService } from "./persona-service.js";
 
 export type ArenaAction = "prepare" | "run" | "judge" | "retry" | "end";
 type Stage = "prepare" | "run" | "judge";
@@ -35,9 +36,12 @@ export class ArenaService {
   private creating = 0;
   private closed = false;
   private readonly expiry = setInterval(() => { void this.expire().catch(() => {}); }, 60_000).unref();
-  constructor(private readonly videos: VideoService,
+  private readonly personas: PersonaService;
+  constructor(videos: VideoService,
     private readonly createAgent: (model: ArenaModel) => Promise<ManagedDebateAgent>,
-    private readonly createJudge: (model: ArenaModel) => Promise<ArenaJudge>) {}
+    private readonly createJudge: (model: ArenaModel) => Promise<ArenaJudge>, personas?: PersonaService) {
+    this.personas = personas ?? new PersonaService(videos);
+  }
 
   async create(speakerId: string, models: ArenaSnapshot["models"]): Promise<ArenaSnapshot> {
     if (this.closed) throw new RecordError(503, "Arena is shutting down.");
@@ -52,7 +56,7 @@ export class ArenaService {
     this.creating++;
     const resources: { dispose(): Promise<void> }[] = [];
     try {
-      const speaker = speakerContext(await this.videos.get(speakerId));
+      const speaker = speakerContext(await this.personas.get(speakerId));
       const affirmative = await this.createAgent(models.affirmative); resources.push(affirmative);
       const negative = await this.createAgent(models.negative); resources.push(negative);
       const judge = await this.createJudge(models.judge); resources.push(judge);

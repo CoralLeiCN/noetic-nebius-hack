@@ -55,7 +55,7 @@
       radio.checked = speaker.id === speakerId; radio.required = true;
       radio.addEventListener("change", () => { speakerId = speaker.id; renderState(); });
       const copy = node("span");
-      copy.append(node("strong", speaker.speakerName), node("small", speaker.title));
+      copy.append(node("strong", speaker.speakerName), node("small", `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
       label.append(radio, copy); $("speaker-options").append(label);
     }
     $("speaker-empty").hidden = Boolean(speakers.length);
@@ -65,16 +65,16 @@
     const version = ++speakerLoad;
     $("refresh-speakers").disabled = true;
     try {
-      const records = await request("/api/videos");
+      const records = await request("/api/personas");
       if (version !== speakerLoad) return;
       updateSpeakers(records);
       error();
-    } catch (failure) { error(`Could not load ready speakers. ${failure.message}`); }
+    } catch (failure) { error(`Could not load speaker personas. ${failure.message}`); }
     finally { $("refresh-speakers").disabled = false; }
   }
   function updateSpeakers(records) {
     speakers = records;
-    if (!speakers.some(speaker => speaker.id === speakerId)) speakerId = session?.speaker?.recordId || speakers[0]?.id || "";
+    if (!speakers.some(speaker => speaker.id === speakerId)) speakerId = session?.speaker?.personaId || speakers[0]?.id || "";
     renderSpeakers();
   }
   function renderModels() {
@@ -124,7 +124,7 @@
     $("debate-model").disabled = loadingModels || !models.length;
     $("refresh-models").disabled = loadingModels;
     $("prepare-debate").textContent = busy && !positions ? "Preparing debate…" : "Prepare debate ↗";
-    $("review-debate-source").hidden = !(session?.speaker?.recordId || speakerId);
+    $("review-debate-source").hidden = !(session?.speaker?.personaId || speakerId);
     $("debate-welcome").hidden = Boolean(positions);
     $("debate-detail").hidden = !positions;
     $("debate-badge").textContent = ended ? "ENDED" : uncertain ? "RECONNECT" : waiting ? "GENERATING" : session?.status === "active" ? "LIVE PRACTICE" : positions ? "CHOOSE A SIDE" : "SETUP";
@@ -150,7 +150,7 @@
     $("debate-model-label").textContent = session.model ? `Model: ${session.model.name}` : "";
     $("affirmative-position").textContent = positions.affirmative;
     $("negative-position").textContent = positions.negative;
-    $("debate-source-note").textContent = `Source: ${session.speaker.title}. ${session.speaker.remarks.length} of ${session.speaker.totalRemarks} saved remarks supplied to your opponent.${session.speaker.excerpted ? " This source is excerpted." : ""} Source references appear as [cue N].`;
+    $("debate-source-note").textContent = `Persona: ${session.speaker.name}. Your opponent uses the saved persona’s speaking style, vocabulary and debate habits. The persona stays fixed for this debate.`;
     if (session.humanSide) $("debate-assignments").textContent = `You: ${session.humanSide} · ${positions[session.humanSide]}\n${session.speaker.name} (simulation): ${session.assistantSide} · ${positions[session.assistantSide]}`;
     const key = `${session.id}:${session.messages.length}`;
     if (messageKey !== key) {
@@ -240,9 +240,9 @@
   $("add-speaker").addEventListener("click", () => { screen("library"); $("speakerName").focus(); });
   $("review-debate-source").addEventListener("click", () => {
     screen("library");
-    document.dispatchEvent(new CustomEvent("review-speaker-source", { detail: session?.speaker?.recordId || speakerId }));
+    document.dispatchEvent(new CustomEvent("review-speaker-persona", { detail: session?.speaker?.personaId || speakerId }));
   });
-  document.addEventListener("speakers-updated", event => updateSpeakers(event.detail));
+  document.addEventListener("personas-updated", event => updateSpeakers(event.detail));
   document.addEventListener("choose-debate-speaker", event => {
     screen("debate");
     if (session && session.status !== "ended") {
@@ -257,7 +257,7 @@
       busy = true; renderState();
       try {
         session = await request(`/api/debates/${encodeURIComponent(id)}`);
-        speakerId = session.speaker?.recordId || "";
+        speakerId = session.speaker?.personaId || "";
         $("debate-topic").value = session.topic || session.pending?.topic || "";
       } catch { session = null; remember(); error("Your previous debate is no longer available. Start a new one."); }
       finally { busy = false; }

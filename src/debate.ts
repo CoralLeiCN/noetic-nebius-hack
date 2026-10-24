@@ -6,13 +6,9 @@ export type Side = "affirmative" | "negative";
 export interface Positions { motion: string; affirmative: string; negative: string }
 export interface Message { role: "human" | "assistant"; text: string }
 export interface SpeakerContext {
-  recordId: string;
+  personaId: string;
   name: string;
-  title: string;
-  remarks: { cueId: number; startSeconds: number | null; quote: string; uncertain: boolean; note: string }[];
-  totalRemarks: number;
-  excerpted: boolean;
-  limitations: string[];
+  personaMarkdown: string;
 }
 export interface PracticeContext {
   topic: string;
