@@ -14,6 +14,8 @@ class UiElement {
   hidden = false;
   disabled = false;
   checked = false;
+  open = false;
+  tagName = "";
   required = false;
   type = "";
   name = "";
@@ -99,6 +101,7 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
   let snapshot = structuredClone(initial);
   const requests: { path: string; body: Record<string, string> | null }[] = [];
   let retryResponse: (() => Promise<Response>) | null = null;
+  let judgeResponse: (() => Promise<Response>) | null = null;
   let sessionResponse: (() => Promise<Response>) | null = null;
   const fetch = async (path: string, options?: { body: string }): Promise<Response> => {
     const body = options ? JSON.parse(options.body) as Record<string, string> : null;
@@ -112,6 +115,7 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
     });
     if (path === "/api/models") return Response.json({ models: [initial.model], defaultModel: initial.model!.id });
     if (path === `/api/debates/${initial.id}`) return sessionResponse ? sessionResponse() : Response.json(snapshot);
+    if (path.endsWith("/judge") && judgeResponse) return judgeResponse();
     if (path.endsWith("/retry")) {
       if (retryResponse) return retryResponse();
       const pending = snapshot.pending;
@@ -133,10 +137,10 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
   runInNewContext(source.replace(importLine, ""), {
     document: {
       getElementById: element,
-      createElement: () => { const result = new UiElement(); created.push(result); return result; },
+      createElement: (tag: string) => { const result = new UiElement(); result.tagName = tag; created.push(result); return result; },
       querySelectorAll: (selector: string) => selector === "[data-screen]" ? screens : selector === "[data-side]" ? sides :
         selector === "[data-side], #regenerate-debate" ? [...sides, element("regenerate-debate")] :
-          selector === ".replay-debate-reply" ? created.filter(item => item.className === "replay-debate-reply") : [],
+          selector.startsWith(".") ? created.filter(item => item.className === selector.slice(1)) : [],
       addEventListener: (name: string, listener: Listener) => documentEvents.set(name, [...documentEvents.get(name) ?? [], listener]),
       dispatchEvent: (event: { type: string; detail: unknown }) => { for (const listener of documentEvents.get(event.type) ?? []) void listener({ preventDefault() {}, detail: event.detail }); },
     },
@@ -156,11 +160,13 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
     replay() { const button = created.find(item => item.className === "replay-debate-reply"); assert.ok(button); button.emit("click"); },
     chooseSpeaker(id: string) { for (const listener of documentEvents.get("choose-debate-speaker") ?? []) void listener({ preventDefault() {}, detail: id }); },
     get canceled() { return canceled; },
+    get played() { return playback.length; },
     get recordingOptions() { return recordingOptions; },
     inputState(state: Partial<typeof voiceState>) { Object.assign(voiceState, state); callbacks.onState({ ...voiceState }); },
     draft(text: string) { element("debate-argument").value = text; element("debate-argument").emit("input"); },
     transcript(text: string) { callbacks.onTranscript(text); Object.assign(voiceState, { recording: false, capturing: false, transcribing: false }); callbacks.onState({ ...voiceState }); },
     retry(handler: () => Promise<Response>) { retryResponse = handler; },
+    judge(handler: () => Promise<Response>) { judgeResponse = handler; },
     sessionRead(handler: () => Promise<Response>) { sessionResponse = handler; },
     current() { return structuredClone(snapshot); },
     pagehide() { for (const listener of windowEvents.get("pagehide") ?? []) void listener({ preventDefault() {} }); },
@@ -428,4 +434,195 @@ test("voice catalog failures preserve playback with the service default", async 
   assert.match(app.element("debate-voice-hint").textContent, /could not be loaded/);
   app.replay();
   assert.equal(app.playback[0]!.voiceId, undefined);
+});
+
+const speechJudgment = {
+  score: 78, rationale: "A clear claim; explain how the funding mechanism works.",
+  criteria: "Clarity, reasoning and response to opposing arguments.", provisional: true as const,
+  breakdown: {
+    clarity: { score: 80, comment: "Your position is easy to follow." },
+    reasoning: { score: 75, comment: "Explain how the funding reaches services." },
+    engagement: { score: 79, comment: "Address the strongest objection directly." },
+  },
+};
+function speechSession(): Snapshot {
+  return { ...failedSession("reply"), pending: null, messages: [
+    { role: "assistant", text: "How should we fund the service?", judgment: speechJudgment },
+    { role: "human", text: "My reviewed speech transcript.", judgmentError: "Judging failed. Retry the evaluation." },
+  ] };
+}
+function descendants(element: UiElement): UiElement[] { return [element, ...element.children.flatMap(descendants)]; }
+function renderedText(element: UiElement): string { return descendants(element).map(child => child.textContent).join("\n"); }
+function visibleText(element: UiElement): string {
+  const children = element.tagName === "details" && !element.open ? element.children.filter(child => child.tagName === "summary") : element.children;
+  return [element.textContent, ...children.map(visibleText)].join("\n");
+}
+function scoreDetails(element: UiElement): UiElement {
+  const details = descendants(element).find(child => child.className === "speech-score-details");
+  assert.ok(details);
+  return details;
+}
+function judgmentRetry(app: Awaited<ReturnType<typeof ui>>): UiElement {
+  const button = descendants(app.element("debate-messages")).find(child => child.className === "retry-debate-judgment");
+  assert.ok(button);
+  return button;
+}
+
+test("speech judgments show both roles and retry updates the same turn without resubmitting or replaying", async () => {
+  const initial = speechSession();
+  const app = await ui(initial);
+  const before = renderedText(app.element("debate-messages"));
+  assert.match(before, /78\/100/);
+  assert.match(before, /Score breakdown/);
+  assert.match(before, /My reviewed speech transcript/);
+  assert.match(before, /Speech judgment unavailable/);
+  app.draft("My next draft stays here.");
+  app.element("read-debate-replies").checked = true;
+  const response = deferred<Response>();
+  app.judge(() => response.promise);
+  judgmentRetry(app).emit("click");
+  assert.match(app.element("debate-generation-phase").textContent, /Judging the speech text/);
+  assert.equal(judgmentRetry(app).disabled, true);
+  response.complete(Response.json({ ...initial, messages: initial.messages.map(message => ({ role: message.role, text: message.text, judgment: speechJudgment })) }));
+  await flush();
+  const rows = app.element("debate-messages").children;
+  assert.equal(rows.length, 2);
+  assert.match(renderedText(rows[0]!), /78\/100/);
+  assert.match(renderedText(rows[1]!), /78\/100/);
+  assert.doesNotMatch(renderedText(rows[1]!), /Retry judging/);
+  assert.equal(app.element("debate-argument").value, "My next draft stays here.");
+  assert.equal(app.played, 0);
+  assert.deepEqual(app.requests.filter(request => request.body), [{ path: `/api/debates/${initial.id}/judge`, body: { messageIndex: "1" } }]);
+});
+
+test("score cards show a concise preview and expand into every criterion's score and comment", async () => {
+  const app = await ui(speechSession());
+  const row = app.element("debate-messages").children[0]!;
+  const evaluation = descendants(row).find(element => element.className === "speech-judgment")!;
+  const details = scoreDetails(evaluation);
+  assert.equal(details.open, false);
+  assert.match(visibleText(evaluation), /78\/100/);
+  assert.match(visibleText(evaluation), /A clear claim; explain how the funding mechanism works\./);
+  assert.doesNotMatch(visibleText(evaluation), /Speech score|Provisional|Clarity|Reasoning|Engagement|equal weight/);
+  assert.equal(details.children[0]!.tagName, "summary");
+  assert.equal(details.children[0]!.textContent, "Score breakdown");
+  details.open = true;
+  details.emit("toggle");
+  for (const [name, result] of Object.entries(speechJudgment.breakdown)) {
+    assert.match(visibleText(evaluation), new RegExp(name, "i"));
+    assert.ok(visibleText(evaluation).includes(`${result.score}/100`));
+    assert.ok(visibleText(evaluation).includes(result.comment));
+  }
+  assert.match(visibleText(evaluation), /equal weight.*rounded average/);
+  assert.match(visibleText(evaluation), /Provisional criteria/);
+});
+
+test("expanded scores stay open when another turn's judgment refreshes", async () => {
+  const initial = speechSession();
+  const app = await ui(initial);
+  const details = scoreDetails(app.element("debate-messages").children[0]!);
+  details.open = true;
+  details.emit("toggle");
+  app.judge(async () => Response.json({ ...initial, messages: initial.messages.map(message => ({ role: message.role, text: message.text, judgment: speechJudgment })) }));
+  judgmentRetry(app).emit("click");
+  await flush();
+  assert.equal(scoreDetails(app.element("debate-messages").children[0]!).open, true);
+  assert.equal(scoreDetails(app.element("debate-messages").children[1]!).open, false);
+});
+
+test("earlier evaluations keep comments brief without inventing missing subcriteria", async () => {
+  const { breakdown: _breakdown, ...legacy } = speechJudgment;
+  legacy.rationale = "Your claim is clear. " + "This earlier evaluation contains a much longer explanation. ".repeat(8);
+  const initial = { ...speechSession(), messages: [{ role: "assistant", text: "Earlier speech", judgment: legacy }] } as unknown as Snapshot;
+  const app = await ui(initial);
+  const evaluation = descendants(app.element("debate-messages")).find(element => element.className === "speech-judgment")!;
+  assert.match(visibleText(evaluation), /Your claim is clear\./);
+  assert.doesNotMatch(visibleText(evaluation), /much longer explanation/);
+  const details = scoreDetails(evaluation);
+  details.open = true;
+  assert.match(visibleText(details), /Detailed scores are unavailable for this earlier evaluation/);
+  assert.ok(visibleText(details).includes(legacy.rationale));
+  assert.equal(descendants(details).filter(element => element.className === "speech-criterion").length, 0);
+});
+
+test("earlier comments without sentence boundaries are bounded in the collapsed card", async () => {
+  const { breakdown: _breakdown, ...legacy } = speechJudgment;
+  legacy.rationale = "A long comment ".repeat(30);
+  const initial = { ...speechSession(), messages: [{ role: "human", text: "Earlier speech", judgment: legacy }] } as unknown as Snapshot;
+  const app = await ui(initial);
+  const comment = descendants(app.element("debate-messages")).find(element => element.className === "speech-score-comment")!;
+  assert.ok(comment.textContent.length <= 180);
+  assert.ok(comment.textContent.endsWith("…"));
+});
+
+test("judging failure keeps speech feedback retryable and recording or ended sessions disable retry", async () => {
+  const initial = speechSession();
+  const app = await ui(initial);
+  app.element("record-debate-argument").emit("click");
+  assert.equal(judgmentRetry(app).disabled, true);
+  app.element("cancel-debate-recording").emit("click");
+  assert.equal(judgmentRetry(app).disabled, false);
+  app.judge(async () => Response.json({ ...initial, messages: [initial.messages[0], { ...initial.messages[1], judgmentError: "Still unavailable. Retry judging." }] }));
+  judgmentRetry(app).emit("click");
+  await flush();
+  assert.match(renderedText(app.element("debate-messages")), /Still unavailable/);
+  assert.equal(judgmentRetry(app).disabled, false);
+  assert.equal(app.element("send-argument").disabled, false);
+  app.element("end-debate").emit("click");
+  await flush();
+  assert.equal(judgmentRetry(app).disabled, true);
+});
+
+test("restored judging displays committed speeches and refreshes evaluations without adding turns", async () => {
+  const initial: Snapshot = { ...speechSession(), status: "generating_judgment", messages: [{ role: "human", text: "My reviewed speech transcript." }] };
+  const app = await ui(initial);
+  assert.match(app.element("debate-generation-phase").textContent, /Judging the speech text/);
+  assert.match(renderedText(app.element("debate-messages")), /My reviewed speech transcript/);
+  assert.match(renderedText(app.element("debate-messages")), /Judging this speech/);
+  app.sessionRead(async () => Response.json({ ...initial, status: "active", messages: [{ ...initial.messages[0], judgment: speechJudgment }] }));
+  await app.advance(1500);
+  assert.equal(app.element("debate-messages").children.length, 1);
+  assert.match(renderedText(app.element("debate-messages")), /78\/100/);
+  assert.equal(app.element("debate-generation-progress").hidden, true);
+});
+
+test("an in-flight turn refreshes committed speech and judging progress before the POST completes", async () => {
+  const initial = failedSession("opening");
+  const app = await ui(initial);
+  const response = deferred<Response>();
+  app.retry(() => response.promise);
+  app.element("read-debate-replies").checked = true;
+  app.element("retry-debate-input").emit("click");
+  const judging: Snapshot = { ...initial, status: "generating_judgment", pending: null, messages: [{ role: "assistant", text: "The completed opening speech." }] };
+  app.sessionRead(async () => Response.json(judging));
+  await app.advance(1500);
+  assert.match(app.element("debate-generation-phase").textContent, /Judging the speech text/);
+  assert.match(renderedText(app.element("debate-messages")), /The completed opening speech/);
+  assert.equal(app.played, 0);
+  response.complete(Response.json({ ...judging, status: "active", messages: [{ ...judging.messages[0], judgment: speechJudgment }] }));
+  await flush();
+  assert.match(renderedText(app.element("debate-messages")), /78\/100/);
+  assert.equal(app.played, 1);
+  assert.equal(app.element("debate-generation-progress").hidden, true);
+  const reads = app.requests.filter(request => request.path === `/api/debates/${initial.id}`).length;
+  await app.advance(3000);
+  assert.equal(app.requests.filter(request => request.path === `/api/debates/${initial.id}`).length, reads, "The completed action must stop polling");
+});
+
+test("late progress reads cannot replace the final speech evaluation", async () => {
+  const initial = speechSession();
+  const app = await ui(initial);
+  const response = deferred<Response>();
+  const progress = deferred<Response>();
+  app.judge(() => response.promise);
+  app.sessionRead(() => progress.promise);
+  judgmentRetry(app).emit("click");
+  await app.advance(1500);
+  const completed = { ...initial, messages: initial.messages.map(message => ({ role: message.role, text: message.text, judgment: speechJudgment })) };
+  response.complete(Response.json(completed));
+  await flush();
+  progress.complete(Response.json({ ...initial, status: "generating_judgment" }));
+  await flush();
+  assert.match(renderedText(app.element("debate-messages").children[1]!), /78\/100/);
+  assert.equal(app.element("debate-generation-progress").hidden, true);
 });

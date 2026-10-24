@@ -9,6 +9,7 @@ import { DebateService, type DebateAction } from "./debate-service.js";
 import { ModelCatalog } from "./models.js";
 import { ArenaCatalog } from "./arena-providers.js";
 import { CodexArenaJudge } from "./arena-judge.js";
+import { CodexArgumentJudge } from "./argument-judge.js";
 import { ArenaService, type ArenaAction } from "./arena-service.js";
 import { publicError } from "./errors.js";
 import { recordSchema, RecordError } from "./video-record.js";
@@ -89,7 +90,8 @@ async function jsonBody(request: IncomingMessage, fields: string[], optional: st
 }
 
 export function createVideoServer(service: VideoService, webDirectory = resolve("web"),
-  debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model))),
+  debates = new DebateService(service, model => CodexDebateAgent.create(loadConfig(process.env, model)), undefined,
+    model => CodexArgumentJudge.create(loadConfig(process.env, model))),
   models = new ModelCatalog(), arenaModels = new ArenaCatalog(),
   arenas = new ArenaService(service, model => CodexDebateAgent.create(arenaModels.config(model)),
     model => CodexArenaJudge.create(arenaModels.config(model))), personas = new PersonaService(service),
@@ -153,13 +155,13 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
         const model = body.model === undefined ? undefined : await models.select(body.model);
         return json(response, 201, await debates.create(body.speakerId!, model));
       }
-      const debateRoute = /^\/api\/debates\/([a-f0-9-]{36})(?:\/(prepare|choose|respond|retry|end))?$/.exec(url.pathname);
+      const debateRoute = /^\/api\/debates\/([a-f0-9-]{36})(?:\/(prepare|choose|respond|retry|judge|end))?$/.exec(url.pathname);
       if (debateRoute) {
         const id = debateRoute[1]!;
         if (request.method === "GET" && !debateRoute[2]) return json(response, 200, debates.get(id));
         if (request.method === "POST" && debateRoute[2]) {
           const action = debateRoute[2] as DebateAction;
-          const field = action === "prepare" ? "topic" : action === "choose" ? "side" : action === "respond" ? "contribution" : null;
+          const field = action === "prepare" ? "topic" : action === "choose" ? "side" : action === "respond" ? "contribution" : action === "judge" ? "messageIndex" : null;
           const body = await jsonBody(request, field ? [field] : []);
           try { return json(response, 200, await debates.act(id, action, field ? body[field] : undefined)); }
           catch (error) {

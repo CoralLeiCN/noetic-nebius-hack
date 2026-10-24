@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { DebateError } from "./errors.js";
+import { DebateError, publicError } from "./errors.js";
 import type { ModelOption } from "./models.js";
+import type { ArgumentJudge, ArgumentJudgment } from "./argument-judge.js";
 
 export type Side = "affirmative" | "negative";
 export interface Positions { motion: string; affirmative: string; negative: string }
-export interface Message { role: "human" | "assistant"; text: string }
+export interface Message { role: "human" | "assistant"; text: string; judgment?: ArgumentJudgment; judgmentError?: string }
 export interface SpeakerContext {
   personaId: string;
   name: string;
@@ -25,7 +26,7 @@ export interface DebateAgent {
   resetPractice(): void;
 }
 export type SessionStatus = "topic_entry" | "generating_positions" | "positions_ready" |
-  "generating_opening" | "active" | "generating_response" | "ended";
+  "generating_opening" | "active" | "generating_response" | "generating_judgment" | "ended";
 type Pending = { kind: "positions"; topic: string } | { kind: "opening"; side: Side } |
   { kind: "reply"; contribution: string };
 export interface Snapshot {
@@ -73,7 +74,8 @@ export class DebateSession {
     humanSide: null, assistantSide: null, messages: [], pending: null,
   };
   private controller: AbortController | null = null;
-  constructor(private readonly agent: DebateAgent, speaker?: SpeakerContext, model?: ModelOption) {
+  constructor(private readonly agent: DebateAgent, speaker?: SpeakerContext, model?: ModelOption,
+    private readonly evaluator?: ArgumentJudge) {
     if (speaker) this.state.speaker = structuredClone(speaker);
     if (model) this.state.model = structuredClone(model);
   }
@@ -110,6 +112,20 @@ export class DebateSession {
     await this.execute();
   }
 
+  async judge(messageIndex: number): Promise<void> {
+    this.allow("active");
+    if (!this.evaluator) throw new DebateError("Judging is unavailable for this debate.");
+    if (this.state.pending) throw new DebateError("Retry the pending response before judging.");
+    if (!Number.isSafeInteger(messageIndex) || messageIndex < 0 || messageIndex >= this.state.messages.length) {
+      throw new DebateError("Choose an existing speech to judge.");
+    }
+    if (this.state.messages[messageIndex]!.judgment) throw new DebateError("This speech has already been judged.");
+    const controller = new AbortController();
+    this.controller = controller;
+    try { await this.evaluate([messageIndex], controller.signal); }
+    finally { if (this.controller === controller) this.controller = null; }
+  }
+
   end(): void {
     this.state.status = "ended";
     this.state.pending = null;
@@ -126,8 +142,32 @@ export class DebateSession {
   private context(): PracticeContext {
     const { topic, positions, humanSide, assistantSide, messages } = this.state;
     if (!positions || !humanSide || !assistantSide) throw new DebateError("Choose a side before practicing.");
-    return structuredClone({ topic, positions, humanSide, assistantSide, messages,
+    return structuredClone({ topic, positions, humanSide, assistantSide, messages: messages.map(({ role, text }) => ({ role, text })),
       ...(this.state.speaker ? { speaker: this.state.speaker } : {}) });
+  }
+
+  private async evaluate(indexes: number[], signal: AbortSignal): Promise<void> {
+    if (!this.evaluator) return;
+    this.state.status = "generating_judgment";
+    await Promise.all(indexes.map(async index => {
+      const message = this.state.messages[index]!;
+      delete message.judgmentError;
+      try {
+        const judgment = await this.evaluator!.judge(structuredClone({
+          topic: this.state.topic, positions: this.state.positions!,
+          side: message.role === "human" ? this.state.humanSide! : this.state.assistantSide!,
+          text: message.text,
+          // Only earlier speeches are available when assessing this turn.
+          messages: this.state.messages.slice(0, index).map(previous => ({
+            side: previous.role === "human" ? this.state.humanSide! : this.state.assistantSide!, text: previous.text,
+          })),
+        }), signal);
+        if (!signal.aborted) message.judgment = structuredClone(judgment);
+      } catch (error) {
+        if (!signal.aborted) message.judgmentError = publicError(error);
+      }
+    }));
+    if (!signal.aborted) this.state.status = "active";
   }
 
   private async execute(): Promise<void> {
@@ -154,9 +194,15 @@ export class DebateSession {
           ? this.agent.opening(this.context(), controller.signal)
           : this.agent.reply(this.context(), pending.contribution, controller.signal)), "Assistant response");
         if (controller.signal.aborted) return;
+        const firstNewMessage = this.state.messages.length;
         if (pending.kind === "reply") this.state.messages.push({ role: "human", text: pending.contribution });
         this.state.messages.push({ role: "assistant", text });
+        // Commit speech before evaluation so judging failures cannot erase it or
+        // cause generation retries to duplicate either participant's turn.
+        this.state.pending = null;
         this.state.status = "active";
+        await this.evaluate(this.state.messages.map((_, index) => index).slice(firstNewMessage), controller.signal);
+        if (controller.signal.aborted) return;
       }
       this.state.pending = null;
     } catch (error) {

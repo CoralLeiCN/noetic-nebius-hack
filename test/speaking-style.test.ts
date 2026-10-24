@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { loadSpeakingStyle } from "../src/speaking-style.js";
 
 test("speaking style uses the complete canonical text block independently of working directory", async () => {
-  const markdown = await readFile(new URL("../../doc/judger/parliamentary-speaking-style-prompt.md", import.meta.url), "utf8");
+  const markdown = await readFile(new URL("../../src/prompts/parliamentary-speaking-style.md", import.meta.url), "utf8");
   const canonical = markdown.split("```text\n")[1]!.split("\n```")[0]!.trim();
   const previous = process.cwd();
   const directory = await mkdtemp(join(tmpdir(), "debate-style-test-"));

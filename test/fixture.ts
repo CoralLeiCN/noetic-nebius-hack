@@ -8,6 +8,14 @@ export const POSITIONS = {
   affirmative: "Schools should allow AI for homework.",
   negative: "Schools should not allow AI for homework.",
 };
+
+export function speechBreakdown(score: number) {
+  return {
+    clarity: { score, comment: "The central claim is easy to follow." },
+    reasoning: { score, comment: "Explain the causal link more fully." },
+    engagement: { score, comment: "Address the strongest opposing point." },
+  };
+}
 export interface RequestRecord {
   path: string;
   headers: IncomingHttpHeaders;

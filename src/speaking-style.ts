@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { DebateError } from "./errors.js";
+import { NO_SOURCE_EXCERPTS } from "./prompts/debate.js";
 
 /** Read the canonical prompt from either src/ or the compiled dist/src/. */
 export async function loadSpeakingStyle(): Promise<string> {
-  for (const relative of ["../doc/judger/parliamentary-speaking-style-prompt.md", "../../doc/judger/parliamentary-speaking-style-prompt.md"]) {
+  for (const relative of ["./prompts/parliamentary-speaking-style.md", "../../src/prompts/parliamentary-speaking-style.md"]) {
     let markdown: string;
     try { markdown = await readFile(new URL(relative, import.meta.url), "utf8"); }
     catch (error) {
@@ -14,7 +15,7 @@ export async function loadSpeakingStyle(): Promise<string> {
     if (!prompt || !prompt.includes("{SOURCE_EXCERPTS}")) {
       throw new DebateError("The parliamentary speaking-style prompt is invalid. Restore its text block and source-excerpts placeholder.");
     }
-    return prompt.replaceAll("{SOURCE_EXCERPTS}", "None supplied. Use the style guidance above; do not invent or retrieve source excerpts.");
+    return prompt.replaceAll("{SOURCE_EXCERPTS}", NO_SOURCE_EXCERPTS);
   }
-  throw new DebateError("The parliamentary speaking-style prompt is missing. Restore doc/judger/parliamentary-speaking-style-prompt.md.");
+  throw new DebateError("The parliamentary speaking-style prompt is missing. Restore src/prompts/parliamentary-speaking-style.md.");
 }

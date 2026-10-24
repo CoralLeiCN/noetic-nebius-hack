@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DebateSession, parsePositions, type DebateAgent, type PracticeContext } from "../src/debate.js";
-import { POSITIONS } from "./fixture.js";
+import { POSITIONS, speechBreakdown } from "./fixture.js";
+import type { ArgumentJudge, ArgumentJudgeInput, ArgumentJudgment } from "../src/argument-judge.js";
 
 class FakeAgent implements DebateAgent {
   topics: string[] = [];
@@ -93,4 +94,95 @@ test("positions require exactly two distinct claims rather than questions", () =
     assert.throws(() => parsePositions(JSON.stringify(data)));
   }
   assert.throws(() => parsePositions("not json"));
+});
+
+const judgment: ArgumentJudgment = { score: 76, rationale: "Clear claim; explain the causal link more fully.", breakdown: speechBreakdown(76), criteria: "Provisional", provisional: true };
+
+test("practice judges generated and human speeches using only prior transcript and assigned side", async () => {
+  for (const humanSide of ["affirmative", "negative"] as const) {
+    const calls: ArgumentJudgeInput[] = [];
+    const evaluator: ArgumentJudge = { judge: async input => { calls.push(input); return judgment; }, dispose: async () => {} };
+    const agent = new FakeAgent();
+    const session = new DebateSession(agent, undefined, undefined, evaluator);
+    await session.prepare("Learning");
+    await session.choose(humanSide);
+    await session.respond("Reviewed speech transcription.");
+    assert.equal(calls.length, 3);
+    assert.deepEqual(calls[0]?.messages, []);
+    assert.equal(calls[0]?.side, session.snapshot.assistantSide);
+    assert.equal(calls[1]?.side, humanSide);
+    assert.equal(calls[1]?.text, "Reviewed speech transcription.");
+    assert.deepEqual(calls[1]?.messages.map(message => message.text), ["Opening arguments"]);
+    assert.deepEqual(calls[2]?.messages.map(message => message.text), ["Opening arguments", "Reviewed speech transcription."]);
+    assert.ok(session.snapshot.messages.every(message => message.judgment?.score === 76));
+    assert.doesNotMatch(JSON.stringify(agent.calls[0]?.context), /judgment|causal link/);
+    const snapshot = session.snapshot;
+    snapshot.messages[0]!.judgment!.score = 0;
+    assert.equal(session.snapshot.messages[0]?.judgment?.score, 76);
+    await assert.rejects(session.judge(0), /already been judged/);
+  }
+});
+
+test("failed judging retains speeches, allows continuation, and retries only the chosen evaluation", async () => {
+  const calls: ArgumentJudgeInput[] = [];
+  let fail = true;
+  const evaluator: ArgumentJudge = { judge: async input => {
+    calls.push(input);
+    if (fail) throw new Error("fixture-secret raw provider failure");
+    return judgment;
+  }, dispose: async () => {} };
+  const agent = new FakeAgent();
+  const session = new DebateSession(agent, undefined, undefined, evaluator);
+  await session.prepare("Learning");
+  await session.choose("affirmative");
+  assert.equal(session.snapshot.status, "active");
+  assert.equal(session.snapshot.pending, null);
+  assert.match(session.snapshot.messages[0]?.judgmentError ?? "", /failed/);
+  assert.doesNotMatch(JSON.stringify(session.snapshot), /fixture-secret/);
+  await session.respond("My human speech.");
+  assert.equal(session.snapshot.messages.length, 3);
+  assert.ok(session.snapshot.messages.every(message => message.judgmentError && !message.judgment));
+  const saved = session.snapshot.messages.map(({ role, text }) => ({ role, text }));
+  fail = false;
+  await session.judge(1);
+  assert.equal(calls.length, 4);
+  assert.equal(agent.calls.length, 1);
+  assert.deepEqual(session.snapshot.messages.map(({ role, text }) => ({ role, text })), saved);
+  assert.equal(session.snapshot.messages[1]?.judgment?.score, 76);
+  assert.equal(session.snapshot.messages[1]?.judgmentError, undefined);
+  assert.ok(session.snapshot.messages[0]?.judgmentError);
+  for (const invalid of [-1, 0.5, NaN, Infinity, 3]) await assert.rejects(session.judge(invalid), /existing speech/);
+  agent.fail = true;
+  await assert.rejects(session.respond("Pending human speech."));
+  assert.equal(calls.length, 4);
+  await assert.rejects(session.judge(0), /pending response/);
+});
+
+test("ending during judging keeps committed speeches and suppresses late evaluations", async () => {
+  let release!: (value: ArgumentJudgment) => void;
+  let started!: () => void;
+  let judgeSignal: AbortSignal | undefined;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const evaluator: ArgumentJudge = { judge: async (_input, signal) => {
+    judgeSignal = signal;
+    started();
+    return new Promise(resolve => { release = resolve; });
+  }, dispose: async () => {} };
+  const session = new DebateSession(new FakeAgent(), undefined, undefined, evaluator);
+  await session.prepare("Learning");
+  const opening = session.choose("affirmative");
+  await ready;
+  assert.equal(session.snapshot.status, "generating_judgment");
+  assert.equal(session.snapshot.messages[0]?.text, "Opening arguments");
+  assert.equal(session.snapshot.pending, null);
+  await assert.rejects(session.respond("Concurrent"), /unavailable/);
+  await assert.rejects(session.judge(0), /unavailable/);
+  session.end();
+  assert.equal(judgeSignal?.aborted, true);
+  release(judgment);
+  await opening;
+  assert.equal(session.snapshot.status, "ended");
+  assert.equal(session.snapshot.messages.length, 1);
+  assert.equal(session.snapshot.messages[0]?.judgment, undefined);
+  assert.equal(session.snapshot.messages[0]?.judgmentError, undefined);
 });

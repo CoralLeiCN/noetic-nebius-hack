@@ -12,7 +12,8 @@ import { VideoService } from "../src/video-service.js";
 import { loadConfig } from "../src/config.js";
 import { ModelCatalog } from "../src/models.js";
 import { PersonaService } from "../src/persona-service.js";
-import { POSITIONS, providerFixture, personaAnalysis } from "./fixture.js";
+import { POSITIONS, providerFixture, personaAnalysis, speechBreakdown } from "./fixture.js";
+import type { ArgumentJudgeInput } from "../src/argument-judge.js";
 
 async function sources() {
   const root = await mkdtemp(join(tmpdir(), "debate-web-test-"));
@@ -165,4 +166,74 @@ test("practice context contains only the compiled persona and identity", async (
     assert.ok(!prompt.includes(persona.analysis.dimensions[0]!.observation));
     assert.ok(!prompt.includes(persona.analysis.limitations[0]!));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("practice API retries failed judgments without regenerating either speech and disposes judge resources", async () => {
+  const { root, service, persona } = await sources();
+  let fail = true;
+  let generations = 0;
+  let disposedAgents = 0;
+  let disposedJudges = 0;
+  const inputs: ArgumentJudgeInput[] = [];
+  const selectedModels: (string | undefined)[] = [];
+  const debates = new DebateService(service, async () => ({
+    prepare: async () => POSITIONS,
+    opening: async () => { generations++; return "Opening"; },
+    reply: async () => { generations++; return "Reply"; },
+    resetPractice() {}, dispose: async () => { disposedAgents++; },
+  }), undefined, async model => {
+    selectedModels.push(model);
+    return { judge: async input => {
+      inputs.push(input);
+      if (fail) throw new Error("fixture-secret provider error");
+      return { score: 81, rationale: "Sound reasoning.", breakdown: speechBreakdown(81), criteria: "Provisional", provisional: true as const };
+    }, dispose: async () => { disposedJudges++; } };
+  });
+  const web = await listening(service, debates);
+  try {
+    const created = await debates.create(persona.id, { id: "test-model", name: "Test", family: "Configured" });
+    assert.deepEqual(selectedModels, ["test-model"]);
+    const route = `/api/debates/${created.id}`;
+    await web.post(route + "/prepare", { topic: "Learning" });
+    const opening = await (await web.post(route + "/choose", { side: "negative" })).json() as Snapshot;
+    assert.equal(opening.status, "active");
+    assert.equal(opening.pending, null);
+    assert.ok(opening.messages[0]?.judgmentError);
+    assert.doesNotMatch(JSON.stringify(opening), /fixture-secret/);
+    for (const messageIndex of ["", "-1", "1", "0.5", "00", " 0", "1e0", "Infinity", "9007199254740992", 0, null]) {
+      assert.equal((await web.post(route + "/judge", { messageIndex })).status, 400);
+    }
+    assert.equal((await web.post(route + "/judge")).status, 400);
+    fail = false;
+    const evaluated = await (await web.post(route + "/judge", { messageIndex: "0" })).json() as Snapshot;
+    assert.equal(evaluated.messages[0]?.judgment?.score, 81);
+    assert.deepEqual(evaluated.messages[0]?.judgment?.breakdown, speechBreakdown(81));
+    assert.equal(evaluated.messages[0]?.judgmentError, undefined);
+    assert.equal(generations, 1);
+    assert.equal((await web.post(route + "/judge", { messageIndex: "0" })).status, 409);
+    const response = await (await web.post(route + "/respond", { contribution: "Reviewed human speech." })).json() as Snapshot;
+    assert.equal(response.messages.length, 3);
+    assert.ok(response.messages.every(message => message.judgment));
+    assert.equal(inputs[2]?.text, "Reviewed human speech.");
+    assert.equal(inputs[2]?.side, "negative");
+    assert.deepEqual(inputs[2]?.messages.map(message => message.text), ["Opening"]);
+    await web.post(route + "/end");
+    assert.equal(disposedAgents, 1);
+    assert.equal(disposedJudges, 1);
+  } finally { await web.close(); await rm(root, { recursive: true, force: true }); }
+  assert.equal(disposedAgents, 1);
+  assert.equal(disposedJudges, 1);
+});
+
+test("failure to initialize a practice judge cleans up its already-created opponent", async () => {
+  const { root, service, persona } = await sources();
+  let disposed = 0;
+  const debates = new DebateService(service, async () => ({
+    prepare: async () => POSITIONS, opening: async () => "Opening", reply: async () => "Reply",
+    resetPractice() {}, dispose: async () => { disposed++; },
+  }), undefined, async () => { throw new Error("Judge initialization failed"); });
+  try {
+    await assert.rejects(debates.create(persona.id), /Judge initialization failed/);
+    assert.equal(disposed, 1);
+  } finally { await debates.close(); await rm(root, { recursive: true, force: true }); }
 });

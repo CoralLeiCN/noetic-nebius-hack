@@ -43,6 +43,8 @@ npm start
 
 Use `/retry` after failed generation. The pending contribution is retained and is not committed twice. Failed practice threads are rebuilt from the confirmed conversation before retrying. `/end`, `/new`, `/quit`, and Ctrl+C also work during generation; late results are ignored.
 
+Each completed assistant speech and submitted human argument receives a provisional score and feedback from a separate judge using the configured model. A failed evaluation keeps the speech intact; use `/judge <turn>` with the displayed one-based turn number to retry only its feedback.
+
 `npm start -- --help` shows all commands without requiring provider credentials. Each contribution is a single line of text. The interface displays completed assistant messages rather than partial output.
 
 ## Verify the configured endpoint
@@ -56,6 +58,8 @@ This command uses your configured model and consumes provider credits. It checks
 Source extraction and debate generation do not fall back to OpenAI or another endpoint. Persona compilation is a separate operation that deliberately uses Codex OAuth, with no fallback to the debate provider. Authentication, protocol, and generation failures produce sanitized messages. Each Codex run has a two-minute timeout. Provider-backed generation allows up to two HTTP retries for retryable failures; interrupted response streams are not replayed automatically. Position output gets at most one content repair attempt.
 
 ## Development
+
+All application prompt templates live in [`src/prompts/`](src/prompts/README.md), including debate generation, speech and Arena judging, source extraction, persona compilation, and speaking style. The index explains which file to edit and how to apply changes.
 
 ```sh
 npm run typecheck
@@ -87,9 +91,13 @@ Open [debate practice](http://127.0.0.1:3000). First build a speaker persona in 
 
 During generation, a visible spinner identifies the current stage and shows elapsed seconds. Replies can take up to two minutes; longer waits show additional guidance, and **End debate** cancels the request. The indicator has no percentage because the provider does not report completion progress. Provider outages, interrupted connections, and account or input limits receive distinct recovery messages.
 
+Generated speeches and submitted human arguments are judged automatically. Each speech shows a score out of 100 and one concise comment. Expand **Score breakdown** to see separate scores and short explanations for clarity, reasoning, and engagement. The overall score is their rounded average; the expanded view explains that these criteria are provisional. The judge uses the selected practice model in a separate runtime and sees only the speech, its side, and preceding debate content. Judging adds provider requests and can take up to two additional minutes. If evaluation fails, **Retry judging** retries that speech's feedback without regenerating arguments or removing the transcript. You can continue practicing after an evaluation failure. See [speech judging](doc/judger/README.md#practice-speech-feedback) for the evaluation contract.
+
 If a Responses-to-Chat gateway explicitly rejects resumed assistant `output_text` history, the adapter makes one fresh Codex request with the confirmed transcript supplied as debate data. Subsequent practice turns use that compatible format. The same bounded fallback supports position repair. This compatibility recovery is separate from the bounded HTTP retries; authentication and unrelated request-validation errors do not trigger a fresh-thread fallback.
 
 For voice practice on Apple Silicon, keep `npm run speech:start` running. In an active debate, choose **Speak argument**, allow microphone access, and choose **Stop recording** when finished. Recording stops automatically after 115 seconds. The local transcription is appended to your draft; review or edit it, then choose **Send argument**. Typed input remains available if microphone access or transcription fails. Microphone access requires localhost or HTTPS and a browser with `MediaRecorder` support.
+
+Your reviewed speech text is judged after submission using the same criteria as typed arguments. The judge assesses the words, not your voice or audio quality, and does not penalize speech disfluencies alone.
 
 Transcription defaults to English (`LOCAL_ASR_LANGUAGE=en`). Automatic language detection can miss short English clips; set `LOCAL_ASR_LANGUAGE=auto` only when automatic detection is desired. Choose the input in **Microphone** and check the live level meter while speaking. The app shows the active microphone, recording duration, detected sound and mute warnings. If the meter stays empty, select another input and check its recording volume. Level monitoring is optional and does not block recording in browsers that cannot provide it.
 
@@ -111,7 +119,7 @@ If `NEBIUS_MODEL` matches an available choice above, it is selected by default. 
 
 A ready speaker has a compiled persona Markdown file. The compiler analyzes all saved, validated source records matching the speaker name and distills vocabulary and language preferences, sentence patterns, tone and register, rhetorical devices, argument structure, evidence use, rebuttal habits, and treatment of uncertainty and values. The canonical generator prompt is `PERSONA_GENERATION_PROMPT` in [`src/prompts/persona-generation.ts`](src/prompts/persona-generation.ts); edit that file to change generation requirements. It requires concise second-person `guidance`, which becomes the direct instructions in `persona.md` sent to the debate agent. Observations, confidence, supporting evidence, limitations and source provenance remain in `persona.json` for tracing. This is persona compilation for prompting, rather than model fine-tuning.
 
-Practice loads the saved `persona.md` as the speaker context. Raw remarks, transcripts, summaries and the tracing analysis are not added to the practice prompt. The persona is copied into the session and stays fixed; adding sources or rebuilding it affects future sessions. Rebuild previously saved personas to adopt the instruction-only Markdown format. The opponent uses compatible persona details while defending its assigned side, with the [parliamentary speaking-style prompt](doc/judger/parliamentary-speaking-style-prompt.md) taking priority over conflicting style guidance. The backend loads that document's text block for openings and replies in web Practice, the CLI and Arena. It supplies speech names, word budgets (250 for openings; 180 for replies), available preparation notes and the conversation, without adding raw source excerpts. Restart the server and start a new session to use prompt edits. Generated arguments remain a labeled simulation, and the assigned side does not establish the real speaker's views.
+Practice loads the saved `persona.md` as the speaker context. Raw remarks, transcripts, summaries and the tracing analysis are not added to the practice prompt. The persona is copied into the session and stays fixed; adding sources or rebuilding it affects future sessions. Rebuild previously saved personas to adopt the instruction-only Markdown format. The opponent uses compatible persona details while defending its assigned side, with the [parliamentary speaking-style prompt](src/prompts/parliamentary-speaking-style.md) taking priority over conflicting style guidance. The backend loads that document's text block for openings and replies in web Practice, the CLI and Arena. It supplies speech names, word budgets (250 for openings; 180 for replies), available preparation notes and the conversation, without adding raw source excerpts. Restart the server and start a new session to use prompt edits. Generated arguments remain a labeled simulation, and the assigned side does not establish the real speaker's views.
 
 The browser keeps the current session ID and model preference in session storage and restores server state after a reload. Debate sessions and transcripts are held in server memory, expire after one hour of inactivity, and disappear on server restart. At most 20 debates can be open at once. Ending aborts generation and disposes the isolated runtime; completed messages remain visible until another debate starts or the session expires. Credentials stay on the server. Generating positions and arguments uses the configured provider and consumes provider credits.
 
@@ -126,6 +134,7 @@ The JSON API supports:
 | POST | `/api/debates/:id/choose` | `{ "side": "affirmative" }` or `{ "side": "negative" }` |
 | POST | `/api/debates/:id/respond` | `{ "contribution": "Your argument" }` |
 | POST | `/api/debates/:id/retry` | `{}` |
+| POST | `/api/debates/:id/judge` | `{ "messageIndex": "0" }`; retry feedback for an unjudged speech by zero-based index |
 | POST | `/api/debates/:id/end` | `{}` |
 
 Successful requests return a session snapshot. Failed session actions return a sanitized `error` and the current `session` snapshot when available, preserving the pending input for retry. Topics are limited to 2,000 characters, contributions to 12,000 characters, and JSON requests to 64 KiB. The local server enforces the same loopback and origin restrictions for debate and source routes.

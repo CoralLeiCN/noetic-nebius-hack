@@ -1,7 +1,8 @@
 import { createInterface } from "node:readline";
 import { loadConfig } from "./config.js";
 import { CodexDebateAgent } from "./codex-agent.js";
-import { DebateSession } from "./debate.js";
+import { CodexArgumentJudge } from "./argument-judge.js";
+import { DebateSession, type Message } from "./debate.js";
 import { publicError } from "./errors.js";
 
 const HELP = `Debate practice
@@ -11,6 +12,7 @@ Commands:
   /regenerate              Generate new positions for the current topic
   /topic <topic>           Replace the topic before choosing a side
   /retry                   Retry the failed generation
+  /judge <turn>            Retry judging a speech (turns start at 1)
   /end                     End this session, including active generation
   /new                     Start another session
   /quit                    Exit
@@ -23,8 +25,34 @@ async function main(): Promise<void> {
     console.log(HELP);
     return;
   }
-  const agent = await CodexDebateAgent.create(loadConfig());
-  let session = new DebateSession(agent);
+  const config = loadConfig();
+  const agent = await CodexDebateAgent.create(config);
+  let judge: CodexArgumentJudge;
+  try { judge = await CodexArgumentJudge.create(config); }
+  catch (error) { await agent.dispose(); throw error; }
+  let session = new DebateSession(agent, undefined, undefined, judge);
+  const printedMessages = new WeakMap<DebateSession, number>();
+  function printJudgment(message: Message, index: number, canRetry: boolean): void {
+    const name = message.role === "human" ? "You" : "Assistant";
+    if (message.judgment) {
+      console.log(`${name}, turn ${index + 1} — provisional score: ${message.judgment.score}/100\n${message.judgment.rationale}\n`);
+    } else if (message.judgmentError) {
+      console.log(`${name}, turn ${index + 1} — judging failed: ${message.judgmentError}${canRetry ? `\nUse /judge ${index + 1} to retry.` : ""}\n`);
+    }
+  }
+  function printNewSpeeches(current: DebateSession): void {
+    const snapshot = current.snapshot;
+    const first = printedMessages.get(current) ?? 0;
+    if (first >= snapshot.messages.length) return;
+    console.log(`\nYou: ${snapshot.humanSide} | Assistant: ${snapshot.assistantSide}\n`);
+    for (let index = first; index < snapshot.messages.length; index++) {
+      const message = snapshot.messages[index]!;
+      const name = message.role === "human" ? "You" : "Assistant";
+      console.log(`${name} (turn ${index + 1}):\n${message.text}\n`);
+      printJudgment(message, index, snapshot.status !== "ended");
+    }
+    printedMessages.set(current, snapshot.messages.length);
+  }
   let closed = false;
   let active: Promise<void> | null = null;
   const lines = createInterface({ input: process.stdin, output: process.stdout, terminal: !!process.stdin.isTTY });
@@ -37,7 +65,7 @@ async function main(): Promise<void> {
       snapshot.status === "ended" ? "Use /new or /quit" : "Your argument";
     if (process.stdin.isTTY) { lines.setPrompt(`${label}> `); lines.prompt(); }
   };
-  const stop = () => { closed = true; session.end(); lines.close(); };
+  const stop = () => { closed = true; session.end(); printNewSpeeches(session); lines.close(); };
   const onSignal = () => stop();
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
@@ -45,6 +73,7 @@ async function main(): Promise<void> {
   lines.on("close", () => {
     closed = true;
     session.end();
+    printNewSpeeches(session);
     // A piped stdin can keep Node alive even after readline is closed.
     process.stdin.pause();
     if (!process.stdin.isTTY) process.stdin.destroy();
@@ -54,13 +83,14 @@ async function main(): Promise<void> {
     const input = line.trim();
     if (input === "/quit") { stop(); return; }
     if (input === "/help") { console.log(HELP); prompt(); return; }
-    if (input === "/end") { session.end(); console.log("Session ended. Use /new to start another."); prompt(); return; }
+    if (input === "/end") { session.end(); printNewSpeeches(session); console.log("Session ended. Use /new to start another."); prompt(); return; }
     if (input === "/new") {
       session.end();
+      printNewSpeeches(session);
       // Wait for cancellation before reusing the adapter for another session.
       await active;
       if (closed) return;
-      session = new DebateSession(agent);
+      session = new DebateSession(agent, undefined, undefined, judge);
       console.log("Enter a new topic."); prompt(); return;
     }
     if (active) { console.log("Generation is in progress. Use /end or /quit to cancel."); return; }
@@ -68,7 +98,16 @@ async function main(): Promise<void> {
     const current = session;
     const before = current.snapshot;
     let operation: () => Promise<void>;
+    let judgedIndex: number | null = null;
     if (input === "/retry") operation = () => current.retry();
+    else if (input === "/judge" || input.startsWith("/judge ")) {
+      const turn = input.slice(6).trim();
+      if (!/^[1-9]\d*$/.test(turn) || !Number.isSafeInteger(Number(turn))) {
+        console.log("Use /judge <turn> with a positive turn number."); prompt(); return;
+      }
+      judgedIndex = Number(turn) - 1;
+      operation = () => current.judge(judgedIndex!);
+    }
     else if (input === "/regenerate") operation = () => current.prepare(before.topic);
     else if (input.startsWith("/topic ")) operation = () => current.prepare(input.slice(7));
     else if (["/affirmative", "/negative"].includes(input) ||
@@ -90,8 +129,8 @@ async function main(): Promise<void> {
         if (after.status === "positions_ready" && after.positions) {
           console.log(`\nMotion: ${after.positions.motion}\nAffirmative: ${after.positions.affirmative}\nNegative: ${after.positions.negative}\n`);
         } else if (after.status === "active") {
-          console.log(`\nYou: ${after.humanSide} | Assistant: ${after.assistantSide}\n`);
-          console.log(`Assistant:\n${after.messages.at(-1)!.text}\n`);
+          if (judgedIndex === null) printNewSpeeches(current);
+          else printJudgment(after.messages[judgedIndex]!, judgedIndex, true);
         }
       } catch (error) { if (!closed) console.error(publicError(error)); }
     })();
@@ -111,7 +150,7 @@ async function main(): Promise<void> {
   } finally {
     process.removeListener("SIGINT", onSignal);
     process.removeListener("SIGTERM", onSignal);
-    await agent.dispose();
+    await Promise.all([agent.dispose(), judge.dispose()]);
   }
 }
 

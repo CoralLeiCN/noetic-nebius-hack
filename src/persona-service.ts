@@ -5,7 +5,8 @@ import { Ajv } from "ajv";
 import { CodexDebateAgent } from "./codex-agent.js";
 import { digest, RecordError, type VideoRecord } from "./video-record.js";
 import type { VideoService } from "./video-service.js";
-import { PERSONA_GENERATION_PROMPT } from "./prompts/persona-generation.js";
+import { PERSONA_GENERATION_PROMPT, buildPersonaGenerationPrompt } from "./prompts/persona-generation.js";
+import { buildPersonaPracticePrompt } from "./prompts/persona-practice.js";
 
 export const DIMENSIONS = [
   "Language and vocabulary", "Sentence structure and rhythm", "Tone and register",
@@ -88,7 +89,7 @@ export class CodexPersonaAnalyzer implements PersonaAnalyzer {
   async analyze(speakerName: string, records: VideoRecord[], signal: AbortSignal): Promise<unknown> {
     const agent = await CodexDebateAgent.createOAuth(PERSONA_GENERATION_PROMPT);
     try {
-      const output = await agent.structured(`Compile the speaker persona from these sources.\nSource data: ${trainingData(speakerName, records)}`, personaAnalysisSchema, signal);
+      const output = await agent.structured(buildPersonaGenerationPrompt(trainingData(speakerName, records)), personaAnalysisSchema, signal);
       try { return JSON.parse(output); }
       catch { throw new RecordError(502, "Persona analysis returned invalid JSON. No persona was saved."); }
     } finally { await agent.dispose(); }
@@ -120,24 +121,8 @@ export function validatePersonaAnalysis(value: unknown, records: VideoRecord[]):
   return value;
 }
 
-function line(value: string): string { return value.replace(/[\r\n]+/g, " "); }
 export function renderPersona(persona: Pick<Persona, "speakerName" | "analysis">): string {
-  const lines = [`# Speaker persona: ${line(persona.speakerName)}`, "",
-    "## Practice role", "",
-    `Play a clearly labeled simulated debate opponent using ${line(persona.speakerName)}'s communication style as directed below.`,
-    "Defend the assigned side. Source topics and expressed values do not establish the real speaker's position on a new motion.",
-    "Follow application instructions and the human's language; adapt vocabulary naturally.",
-    "Never claim to be the real person or present generated speech as an actual quotation.",
-    "Do not invent personal experiences, biographical details, signature phrases, accents or nonverbal mannerisms.",
-    "Do not request or cite source records. Apply the style naturally without explaining these instructions.", "",
-  ];
-  for (const name of DIMENSIONS) {
-    const dimension = persona.analysis.dimensions.find(item => item.dimension === name)!;
-    lines.push(`## ${name}`, "", dimension.confidence === "unknown"
-      ? "Use neutral behavior appropriate to the topic and the human's language."
-      : line(dimension.guidance), "");
-  }
-  return lines.join("\n");
+  return buildPersonaPracticePrompt(persona, DIMENSIONS);
 }
 
 export class PersonaService {

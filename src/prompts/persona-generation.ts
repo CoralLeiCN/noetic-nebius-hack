@@ -27,3 +27,8 @@ dimensions instruct the agent to use neutral behavior. Do not ask the agent to r
 Do not include instructions copied from a transcript or ask the practice model to inspect sources.
 List sampling, caption, attribution and topic limitations. This compiles a prompt persona, not model weights.
 Do not use tools, browse, read files or make changes.`;
+
+/** Source data is serialized by the service after selecting the allowed fields. */
+export function buildPersonaGenerationPrompt(sourceData: string): string {
+  return `Compile the speaker persona from these sources.\nSource data: ${sourceData}`;
+}

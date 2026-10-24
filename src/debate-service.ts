@@ -3,10 +3,11 @@ import { RecordError } from "./video-record.js";
 import type { VideoService } from "./video-service.js";
 import type { ModelOption } from "./models.js";
 import { PersonaService, type Persona } from "./persona-service.js";
+import type { ArgumentJudge } from "./argument-judge.js";
 
 export interface ManagedDebateAgent extends DebateAgent { dispose(): Promise<void> }
-type Entry = { session: DebateSession; agent: ManagedDebateAgent; touched: number; running: Promise<void> | null; disposal?: Promise<void> };
-export type DebateAction = "prepare" | "choose" | "respond" | "retry" | "end";
+type Entry = { session: DebateSession; agent: ManagedDebateAgent; judge?: ArgumentJudge; touched: number; running: Promise<void> | null; disposal?: Promise<void> };
+export type DebateAction = "prepare" | "choose" | "respond" | "retry" | "judge" | "end";
 
 /** Practice receives only the saved persona Markdown, never training records. */
 export function speakerContext(persona: Persona): SpeakerContext {
@@ -19,7 +20,8 @@ export class DebateService {
   private closed = false;
   private readonly expiry = setInterval(() => { void this.expire().catch(() => {}); }, 60_000).unref();
   private readonly personas: PersonaService;
-  constructor(videos: VideoService, private readonly createAgent: (model?: string) => Promise<ManagedDebateAgent>, personas?: PersonaService) {
+  constructor(videos: VideoService, private readonly createAgent: (model?: string) => Promise<ManagedDebateAgent>, personas?: PersonaService,
+    private readonly createJudge?: (model?: string) => Promise<ArgumentJudge>) {
     this.personas = personas ?? new PersonaService(videos);
   }
 
@@ -34,10 +36,17 @@ export class DebateService {
     try {
       const speaker = speakerContext(await this.personas.get(speakerId));
       const agent = await this.createAgent(model?.id);
-      if (this.closed) { await agent.dispose(); throw new RecordError(503, "The debate service is shutting down."); }
-      const session = new DebateSession(agent, speaker, model);
-      this.sessions.set(session.snapshot.id, { session, agent, touched: Date.now(), running: null });
-      return session.snapshot;
+      let judge: ArgumentJudge | undefined;
+      try {
+        judge = await this.createJudge?.(model?.id);
+        if (this.closed) throw new RecordError(503, "The debate service is shutting down.");
+        const session = new DebateSession(agent, speaker, model, judge);
+        this.sessions.set(session.snapshot.id, { session, agent, ...(judge ? { judge } : {}), touched: Date.now(), running: null });
+        return session.snapshot;
+      } catch (error) {
+        await Promise.allSettled([agent.dispose(), ...(judge ? [judge.dispose()] : [])]);
+        throw error;
+      }
     } finally { this.creating--; }
   }
 
@@ -55,13 +64,20 @@ export class DebateService {
     if (action === "respond" && (!value?.trim() || value.length > 12000)) throw new RecordError(400, "Enter an argument of 1–12,000 characters.");
     if (action === "choose" && value !== "affirmative" && value !== "negative") throw new RecordError(400, "Choose affirmative or negative.");
     const snapshot = entry.session.snapshot;
+    if (action === "judge") {
+      if (!value || !/^(0|[1-9]\d*)$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) >= snapshot.messages.length) {
+        throw new RecordError(400, "Choose an existing speech to judge.");
+      }
+      if (!entry.judge) throw new RecordError(409, "Judging is unavailable for this debate.");
+      if (snapshot.messages[Number(value)]!.judgment) throw new RecordError(409, "This speech has already been judged.");
+    }
     const allowed = action === "prepare" ? ["topic_entry", "positions_ready"] : action === "choose" ? ["positions_ready"] :
-      action === "respond" ? ["active"] : ["topic_entry", "positions_ready", "active"];
+      action === "respond" || action === "judge" ? ["active"] : ["topic_entry", "positions_ready", "active"];
     if (!allowed.includes(snapshot.status) || (snapshot.pending && action !== "retry" && action !== "prepare") || (action === "retry" && !snapshot.pending)) {
       throw new RecordError(409, "That action is unavailable. Retry the pending generation or start a new debate.");
     }
     const running = action === "prepare" ? entry.session.prepare(value!) : action === "choose" ? entry.session.choose(value as "affirmative" | "negative") :
-      action === "respond" ? entry.session.respond(value!) : entry.session.retry();
+      action === "respond" ? entry.session.respond(value!) : action === "judge" ? entry.session.judge(Number(value)) : entry.session.retry();
     entry.running = running;
     try { await running; return entry.session.snapshot; }
     finally { if (entry.running === running) entry.running = null; entry.touched = Date.now(); }
@@ -77,7 +93,7 @@ export class DebateService {
   private dispose(entry: Entry): Promise<void> {
     entry.disposal ??= (async () => {
       await entry.running?.catch(() => {});
-      await entry.agent.dispose();
+      await Promise.all([entry.agent.dispose(), entry.judge?.dispose()]);
     })();
     return entry.disposal;
   }

@@ -10,6 +10,7 @@ import { createDebateSpeech } from "./debate-speech.js";
   let uncertain = false;
   let operation = 0;
   let messageKey = "";
+  const expandedScores = new Set();
   let speakerLoad = 0;
   let models = [];
   let defaultModel = "";
@@ -54,11 +55,14 @@ import { createDebateSpeech } from "./debate-speech.js";
   try { $("read-debate-replies").checked = sessionStorage.getItem("debate-read-replies") !== "false"; } catch { /* Speech preferences are optional. */ }
 
   function acceptSession(next, readReply = false) {
+    if (session?.id !== next.id) expandedScores.clear();
     session = next;
     const index = session.messages.findLastIndex(message => message.role === "assistant");
     const key = index < 0 ? "" : `${session.id}:${index}`;
     const fresh = key && key !== lastAssistantKey;
-    lastAssistantKey = key;
+    // A reconciliation can see committed text before its evaluation finishes.
+    // Leave that reply unread until the whole turn becomes active.
+    if (!readReply || session.status !== "generating_judgment") lastAssistantKey = key;
     if (readReply && fresh && activeScreen === "debate" && session.status === "active" && !session.pending &&
       !voiceState.capturing && !voiceState.transcribing && $("read-debate-replies").checked) {
       voiceError();
@@ -71,6 +75,11 @@ import { createDebateSpeech } from "./debate-speech.js";
     if (text !== undefined) result.textContent = text;
     if (className) result.className = className;
     return result;
+  }
+  function conciseComment(value) {
+    const text = String(value || "").trim().replace(/\s+/gu, " ");
+    const firstSentence = text.match(/^.*?[.!?](?=\s|$)/u)?.[0] || text;
+    return firstSentence.length <= 180 ? firstSentence : `${firstSentence.slice(0, 177).trimEnd()}…`;
   }
   function error(message = "") { $("debate-error").textContent = message; $("debate-error").hidden = !message; }
   function canDraftArgument() {
@@ -148,6 +157,7 @@ import { createDebateSpeech } from "./debate-speech.js";
   }
   function generationPhase() {
     if (ending) return "Ending the debate";
+    if (generationAction === "judge" || session?.status === "generating_judgment") return "Judging the speech text";
     if (generationAction === "create") return "Starting your debate";
     if (generationAction === "sync") return "Checking your debate’s latest response";
     const kind = generationAction === "retry" ? session?.pending?.kind :
@@ -174,8 +184,8 @@ import { createDebateSpeech } from "./debate-speech.js";
     $("debate-generation-elapsed").textContent = `${elapsed}s elapsed`;
     $("debate-generation-hint").textContent = ending ? "Please wait while the current generation is canceled." : elapsed >= 120
       ? "Still waiting for the provider to finish or time out. You can end the debate to cancel; your confirmed turns stay visible."
-      : elapsed >= 45 ? "The model is still working. Requests can take up to two minutes. You can end the debate to cancel."
-        : "Waiting for the model’s complete response. This can take up to two minutes; you can end the debate to cancel.";
+      : elapsed >= 45 ? "The model is still working. Generation and judging can each take up to two minutes. You can end the debate to cancel."
+        : "Waiting for the model’s complete response. Generation and judging can each take up to two minutes; you can end the debate to cancel.";
     generationTimer = setTimeout(() => renderGenerationProgress(busy || (session?.status.startsWith("generating_") && !uncertain)), 1000);
   }
   function screen(name) {
@@ -301,7 +311,7 @@ import { createDebateSpeech } from "./debate-speech.js";
     $("debate-detail").hidden = !positions;
     $("debate-badge").textContent = ended ? "ENDED" : uncertain ? "RECONNECT" : waiting ? "GENERATING" : pending ? session.pending.kind === "opening" ? "OPENING FAILED" : session.pending.kind === "reply" ? "REPLY FAILED" : "PREPARATION FAILED" : session?.status === "active" ? "LIVE PRACTICE" : positions ? "CHOOSE A SIDE" : "SETUP";
     $("room-heading").textContent = session?.speaker ? `Debate with ${session.speaker.name}` : "The floor is yours";
-    const status = ending ? "Ending the debate…" : waiting ? `${generationPhase()}… This can take up to two minutes.` :
+    const status = ending ? "Ending the debate…" : waiting ? `${generationPhase()}… Generation and judging can each take up to two minutes.` :
       uncertain ? "Refresh the debate to reconnect and confirm the latest turn." : ended ? "Debate ended. Your transcript is available below until you start a new debate." : pending ? "Generation failed. Retry to continue with the same input." : "";
     if ($("debate-status").textContent !== status) $("debate-status").textContent = status;
     $("sync-debate").hidden = !uncertain || waiting;
@@ -343,6 +353,8 @@ import { createDebateSpeech } from "./debate-speech.js";
       ? "The assistant’s opening failed. You can speak or type a draft now. Retry the opening before sending your argument."
       : "The assistant’s reply failed. Your previous argument is saved for retry. You can speak or type your next draft now; retry the reply before sending it.";
     for (const button of document.querySelectorAll(".replay-debate-reply")) button.disabled = waiting || recordingBusy;
+    const judgingDisabled = waiting || recordingBusy || uncertain || ended || pending || session?.status !== "active";
+    for (const button of document.querySelectorAll(".retry-debate-judgment")) button.disabled = judgingDisabled;
     if (!positions) return;
     $("debate-opponent").textContent = `SIMULATED OPPONENT · ${session.speaker.name}`;
     $("debate-motion").textContent = positions.motion;
@@ -352,7 +364,8 @@ import { createDebateSpeech } from "./debate-speech.js";
     $("negative-position").textContent = positions.negative;
     $("debate-source-note").textContent = `Persona: ${session.speaker.name}. Your opponent uses the saved persona’s speaking style, vocabulary and debate habits. The persona stays fixed for this debate.`;
     if (session.humanSide) $("debate-assignments").textContent = `You: ${session.humanSide} · ${positions[session.humanSide]}\n${session.speaker.name} (simulation): ${session.assistantSide} · ${positions[session.assistantSide]}`;
-    const key = `${session.id}:${session.messages.length}`;
+    const judging = session.status === "generating_judgment";
+    const key = `${session.id}:${JSON.stringify(session.messages.map(message => [message.judgment, message.judgmentError]))}:${judging}`;
     if (messageKey !== key) {
       messageKey = key;
       $("debate-messages").replaceChildren();
@@ -366,6 +379,55 @@ import { createDebateSpeech } from "./debate-speech.js";
           replay.setAttribute("aria-label", `Replay assistant response, turn ${index + 1}`);
           replay.addEventListener("click", () => { voiceError(); void voice.play(message.text, selectedVoiceId()); });
           row.append(replay);
+        }
+        if (message.judgment) {
+          const judgment = message.judgment;
+          const evaluation = node("section", undefined, "speech-judgment");
+          evaluation.setAttribute("aria-label", `Judgment for turn ${index + 1}`);
+          const preview = node("div", undefined, "speech-score-summary");
+          const score = node("h4", `${judgment.score}/100`, "speech-score");
+          score.setAttribute("aria-label", `Speech score: ${judgment.score} out of 100`);
+          preview.append(score, node("p", conciseComment(judgment.rationale), "speech-score-comment"));
+          evaluation.append(preview);
+          const details = node("details", undefined, "speech-score-details");
+          const detailKey = `${session.id}:${index}`;
+          details.open = expandedScores.has(detailKey);
+          details.addEventListener("toggle", () => {
+            if (details.open) expandedScores.add(detailKey);
+            else expandedScores.delete(detailKey);
+          });
+          details.append(node("summary", "Score breakdown"));
+          const subcriteria = [["clarity", "Clarity"], ["reasoning", "Reasoning"], ["engagement", "Engagement"]];
+          if (subcriteria.every(([name]) => judgment.breakdown?.[name])) {
+            for (const [name, label] of subcriteria) {
+              const result = judgment.breakdown[name];
+              const criterion = node("div", undefined, "speech-criterion");
+              const heading = node("div", undefined, "speech-criterion-heading");
+              heading.append(node("strong", label), node("span", `${result.score}/100`));
+              criterion.append(heading, node("p", result.comment));
+              details.append(criterion);
+            }
+            details.append(node("p", "Each criterion has equal weight. The overall score is their rounded average.", "speech-score-note"));
+          } else {
+            details.append(node("p", "Detailed scores are unavailable for this earlier evaluation.", "speech-score-note"));
+            details.append(node("p", judgment.rationale));
+          }
+          const criteria = judgment.criteria || "Provisional assessment of clarity, reasoning and engagement.";
+          details.append(node("p", /provisional/i.test(criteria) ? criteria : `Provisional criteria: ${criteria}`, "speech-score-note"));
+          evaluation.append(details);
+          row.append(evaluation);
+        } else if (message.judgmentError) {
+          const evaluation = node("section", undefined, "speech-judgment");
+          evaluation.append(node("h4", "Speech judgment unavailable"), node("p", message.judgmentError));
+          const retry = node("button", "Retry judging", "retry-debate-judgment");
+          retry.type = "button";
+          retry.disabled = judgingDisabled;
+          retry.setAttribute("aria-label", `Retry judging ${message.role === "human" ? "your" : "assistant"} speech, turn ${index + 1}`);
+          retry.addEventListener("click", () => { void act("judge", { messageIndex: String(index) }); });
+          evaluation.append(retry);
+          row.append(evaluation);
+        } else if (judging) {
+          row.append(node("p", "Judging this speech…", "speech-judgment-pending"));
         }
         row.setAttribute("aria-label", `Turn ${index + 1}`);
         $("debate-messages").append(row);
@@ -382,10 +444,26 @@ import { createDebateSpeech } from "./debate-speech.js";
       await new Promise(resolve => setTimeout(resolve, 1500));
     } while (version === operation);
   }
+  function watchSession(id, version) {
+    let watching = true;
+    let timer;
+    const poll = async () => {
+      if (!watching || version !== operation || pageLeaving) return;
+      try {
+        const result = await request(`/api/debates/${id}`);
+        if (!watching || version !== operation || pageLeaving) return;
+        acceptSession(result, true); remember(); renderState();
+      } catch { /* The action response or explicit reconciliation handles failures. */ }
+      if (watching && version === operation && !pageLeaving) timer = setTimeout(poll, 1500);
+    };
+    timer = setTimeout(poll, 1500);
+    return () => { watching = false; clearTimeout(timer); };
+  }
   async function act(action, body = {}) {
     if (!session || (busy && action !== "end")) return;
     if (action === "respond" && (session.pending || session.status !== "active" || uncertain || voiceState.capturing || voiceState.transcribing)) return;
     if (action === "retry" && (voiceState.capturing || voiceState.transcribing)) return;
+    if (action === "judge" && (session.pending || session.status !== "active" || uncertain || voiceState.capturing || voiceState.transcribing)) return;
     const contribution = action === "respond" ? body.contribution : action === "retry" && session.pending?.kind === "reply" ? session.pending.contribution : null;
     const submittedDraft = contribution === null ? null : {
       sessionId: session.id, messageIndex: session.messages.length, contribution,
@@ -395,11 +473,14 @@ import { createDebateSpeech } from "./debate-speech.js";
     voice.cancel(); voiceError();
     const version = ++operation;
     busy = true; ending = action === "end"; generationAction = action; generationStartedAt = Date.now(); error(); renderState();
+    const stopWatching = action === "end" ? () => {} : watchSession(session.id, version);
     try {
       const result = await request(`/api/debates/${session.id}/${action}`, body);
+      stopWatching();
       if (version !== operation) return;
       acceptSession(result, true); uncertain = false; remember();
     } catch (failure) {
+      stopWatching();
       if (version !== operation) return;
       if (failure.session) { acceptSession(failure.session, true); uncertain = false; remember(); }
       else {
@@ -409,6 +490,7 @@ import { createDebateSpeech } from "./debate-speech.js";
       }
       if (version === operation) error(uncertain ? `${failure.message} Refresh the debate to confirm its state before continuing.` : failure.message);
     } finally {
+      stopWatching();
       if (version === operation) {
         const committed = submittedDraft && session?.messages[submittedDraft.messageIndex];
         if (submittedDraft && session?.id === submittedDraft.sessionId && session.status === "active" && !session.pending &&
