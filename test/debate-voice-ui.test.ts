@@ -1,50 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { runInNewContext } from "node:vm";
+import { UiElement, eventTarget, htmlElements, memoryStorage, runUiScript, flush } from "./ui-fixture.js";
 import type { Snapshot } from "../src/debate.js";
-
-interface UiEvent { preventDefault(): void; detail?: unknown }
-type Listener = (event: UiEvent) => void | Promise<void>;
-
-class UiElement {
-  value = "";
-  textContent = "";
-  hidden = false;
-  disabled = false;
-  checked = false;
-  open = false;
-  tagName = "";
-  required = false;
-  type = "";
-  name = "";
-  label = "";
-  id = "";
-  className = "";
-  scrollTop = 0;
-  scrollHeight = 0;
-  dataset: Record<string, string> = {};
-  children: UiElement[] = [];
-  readonly attributes = new Map<string, string>();
-  readonly listeners = new Map<string, Listener[]>();
-  append(...children: UiElement[]): void { this.children.push(...children); }
-  replaceChildren(...children: UiElement[]): void { this.children = children; }
-  setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
-  addEventListener(name: string, listener: Listener): void { this.listeners.set(name, [...this.listeners.get(name) ?? [], listener]); }
-  focus(): void {}
-  emit(name: string, detail?: unknown): void {
-    if (this.disabled && name === "click") throw new Error(`Cannot click disabled ${this.id}`);
-    for (const listener of this.listeners.get(name) ?? []) void listener({ preventDefault() {}, detail });
-  }
-}
 
 function deferred<T>() {
   let complete!: (result: T) => void;
   const promise = new Promise<T>(resolve => { complete = resolve; });
   return { promise, complete };
 }
-const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
 function failedSession(kind: "reply" | "opening"): Snapshot {
   return {
@@ -69,21 +32,12 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
   };
   const clearTimer = (id: number) => { timers.delete(id); };
   class UiDate extends Date { static override now() { return now; } }
-  const html = await readFile(resolve("web/index.html"), "utf8");
-  const elements = new Map<string, UiElement>();
+  const { element } = await htmlElements();
   const created: UiElement[] = [];
-  for (const match of html.matchAll(/id="([^"]+)"/gu)) {
-    const element = new UiElement(); element.id = match[1]!; elements.set(element.id, element);
-  }
-  function element(id: string): UiElement {
-    const found = elements.get(id);
-    assert.ok(found, `The real HTML must provide #${id}`);
-    return found;
-  }
   const screens = ["debate", "library", "arena"].map(screen => { const result = new UiElement(); result.dataset.screen = screen; return result; });
   const sides = ["affirmative", "negative"].map(side => { const result = new UiElement(); result.dataset.side = side; return result; });
-  const documentEvents = new Map<string, Listener[]>();
-  const windowEvents = new Map<string, Listener[]>();
+  const documentEvents = eventTarget();
+  const windowEvents = eventTarget();
   const storage = new Map([["debate-session", initial.id], ["debate-read-replies", "false"]]);
   const voiceState = { recording: false, capturing: false, transcribing: false, speaking: false, supported: true, needsPlaybackGesture: false, status: "", inputLevel: null as number | null, microphoneLabel: "", microphoneMuted: false, inputMonitoring: false, inputSignalDetected: false, captureElapsedSeconds: 0 };
   let callbacks!: { onState(state: typeof voiceState): void; onTranscript(text: string): void; onError(message: string): void };
@@ -131,34 +85,32 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
     if (path.endsWith("/end")) { snapshot = { ...snapshot, status: "ended" }; return Response.json(snapshot); }
     throw new Error(`Unexpected request ${path}`);
   };
-  const source = await readFile(resolve("web/debate.js"), "utf8");
   const importLine = 'import { createDebateSpeech } from "./debate-speech.js";';
-  assert.ok(source.startsWith(importLine));
-  runInNewContext(source.replace(importLine, ""), {
+  await runUiScript("web/debate.js", {
     document: {
       getElementById: element,
       createElement: (tag: string) => { const result = new UiElement(); result.tagName = tag; created.push(result); return result; },
       querySelectorAll: (selector: string) => selector === "[data-screen]" ? screens : selector === "[data-side]" ? sides :
         selector === "[data-side], #regenerate-debate" ? [...sides, element("regenerate-debate")] :
           selector.startsWith(".") ? created.filter(item => item.className === selector.slice(1)) : [],
-      addEventListener: (name: string, listener: Listener) => documentEvents.set(name, [...documentEvents.get(name) ?? [], listener]),
-      dispatchEvent: (event: { type: string; detail: unknown }) => { for (const listener of documentEvents.get(event.type) ?? []) void listener({ preventDefault() {}, detail: event.detail }); },
+      addEventListener: documentEvents.addEventListener,
+      dispatchEvent: (event: { type: string; detail: unknown }) => { documentEvents.emit(event.type, event.detail); },
     },
-    window: { addEventListener: (name: string, listener: Listener) => windowEvents.set(name, [...windowEvents.get(name) ?? [], listener]) },
+    window: { addEventListener: windowEvents.addEventListener },
     navigator: { mediaDevices: { enumerateDevices: async () => [{ kind: "audioinput", deviceId: "usb-mic", label: "USB microphone" }] } },
-    localStorage: { getItem: (name: string) => preferences.get(name) ?? null, setItem: (name: string, value: string) => preferences.set(name, value) },
-    sessionStorage: { getItem: (name: string) => storage.get(name) ?? null, setItem: (name: string, value: string) => storage.set(name, value), removeItem: (name: string) => storage.delete(name) },
+    localStorage: memoryStorage(preferences),
+    sessionStorage: memoryStorage(storage),
     CustomEvent: class { constructor(readonly type: string, readonly options: { detail: unknown }) {} get detail() { return this.options.detail; } },
     createDebateSpeech: (options: typeof callbacks) => { callbacks = options; return voice; },
     fetch, setTimeout: setTimer, clearTimeout: clearTimer, Date: UiDate, console,
-  }, { filename: "web/debate.js" });
+  }, source => { assert.ok(source.startsWith(importLine)); return source.replace(importLine, ""); });
   await flush();
   return {
     element, requests, screens, playback,
     recoverPersonas() { personasFail = false; },
     get stoppedPlayback() { return stoppedPlayback; },
     replay() { const button = created.find(item => item.className === "replay-debate-reply"); assert.ok(button); button.emit("click"); },
-    chooseSpeaker(id: string) { for (const listener of documentEvents.get("choose-debate-speaker") ?? []) void listener({ preventDefault() {}, detail: id }); },
+    chooseSpeaker(id: string) { documentEvents.emit("choose-debate-speaker", id); },
     get canceled() { return canceled; },
     get played() { return playback.length; },
     get recordingOptions() { return recordingOptions; },
@@ -169,7 +121,7 @@ async function ui(initial: Snapshot, preferences = new Map<string, string>(), ca
     judge(handler: () => Promise<Response>) { judgeResponse = handler; },
     sessionRead(handler: () => Promise<Response>) { sessionResponse = handler; },
     current() { return structuredClone(snapshot); },
-    pagehide() { for (const listener of windowEvents.get("pagehide") ?? []) void listener({ preventDefault() {} }); },
+    pagehide() { windowEvents.emit("pagehide"); },
     progressTimers() { return [...timers.values()].filter(timer => timer.delay === 1000).length; },
     async advance(milliseconds: number) {
       const target = now + milliseconds;
@@ -392,7 +344,6 @@ test("microphone selection reaches capture and real input diagnostics stay visib
   assert.equal(app.element("debate-input-monitor").hidden, true);
   assert.equal(app.element("debate-microphone").disabled, false);
 });
-
 
 test("Andy uses The Rising Reformer; explicit voice selection survives reload and applies to replay", async () => {
   const initial = failedSession("reply");

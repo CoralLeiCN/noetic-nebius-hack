@@ -1,6 +1,6 @@
 # Debate judging
 
-Edit the runtime judging prompt in [`src/prompts/argument-judge.ts`](../../src/prompts/argument-judge.ts) for speeches in Practice, the CLI and Arena. It contains the shared system instructions, provisional criteria and evaluation task. [`src/prompts/arena-judge.ts`](../../src/prompts/arena-judge.ts) is the legacy whole-exchange prompt and is not used by the current Arena flow. The [prompt index](../../src/prompts/README.md) lists every application prompt and explains how to apply edits.
+Edit the runtime judging prompt in [`src/prompts/argument-judge.ts`](../../src/prompts/argument-judge.ts) for speeches in Practice, the CLI and Arena. It contains the shared system instructions, provisional criteria and evaluation task. The [prompt index](../../src/prompts/README.md) lists every application prompt and explains how to apply edits.
 
 ## Practice speech feedback
 

@@ -10,11 +10,9 @@ Help a human practice debating a topic against an assistant that maintains an op
 
 ## Source-to-persona workflow
 
-The source library collects video references and supplied transcripts. After extracting and validating a named speaker's remarks, use the Codex SDK with the existing ChatGPT OAuth login to analyze all saved records matching that normalized speaker name. Save the result as `data/persona-<uuid>/persona.md`, with metadata in `persona.json`. This compilation creates reusable prompt context; it does not fine-tune a model.
+The source library collects video references and supplied transcripts. After validating a speaker's remarks, compile the saved sources for that speaker into reviewable persona instructions using the Codex SDK with ChatGPT OAuth. The [persona compilation contract](video-record-service.md#speaker-persona-compilation) defines the dimensions, evidence requirements, output format and limits.
 
-The persona gives direct agent instructions for language and vocabulary preferences, sentence rhythm, tone and register, rhetorical devices, argument structure, evidence use, interaction and rebuttal habits, and treatment of uncertainty and values. Keep observations, source evidence, confidence, limitations and provenance in `persona.json` for tracing, separate from the instruction-only `persona.md`. Mark dimensions that the sources cannot establish in the analysis and use neutral practice behavior for them. Do not infer acoustic voice characteristics from transcripts or invent the speaker's views on unrelated topics.
-
-The human can inspect and download the Markdown before practice. Adding sources does not silently change a persona: rebuild it, then start a new debate to use the new version. Previously saved personas require a rebuild to adopt the instruction-only format. Practice receives only the saved persona as speaker context.
+The human can inspect and download the persona before practice. Practice receives only its saved Markdown instructions, copied into the session; source material and tracing analysis stay in the library. Adding sources or rebuilding a persona affects future sessions only. Unsupported traits require neutral behavior, and generated arguments must remain a labeled simulation rather than claims about the speaker's actual views.
 
 ## Core workflow
 
@@ -84,7 +82,7 @@ A generation error preserves the last confirmed topic, positions, assignments, a
 
 ## Arena
 
-Arena is the third web tab, alongside Practice and Source library. It evaluates models using the existing Practice agent's preparation, opening, and reply methods, including its simulation rules and saved persona context. It must not introduce a separate argument-generation prompt that makes the comparison unlike actual practice.
+Arena is the third web tab, alongside Practice and Source library. It evaluates models using the existing Practice agent's preparation and opening methods, including its simulation rules and saved persona context. It must not introduce a separate argument-generation prompt that makes the comparison unlike actual practice.
 
 The human selects a saved speaker persona, a topic and a judge model. The server randomly selects four distinct model IDs from the shared model allowlist, potentially across different configured providers; credentials remain on the server. The first participant prepares the shared motion and positions. The human reviews those positions and chooses one side for all four participants. Each participant receives the same saved persona Markdown and an empty conversation history; raw training sources are excluded.
 
@@ -127,7 +125,7 @@ The standalone [technology document](tech-stack.md) describes the implementation
 
 - Structured competition sessions with defined rounds, speaking order, time limits, rebuttals, and closing statements.
 - Final Arena judging criteria, repeatable evaluation across swapped sides, and coaching feedback.
-- Voice interaction.
+- Continuous full-duplex voice conversation; recording, reviewed transcription and reply playback are already available through the [speech service](local-speech.md).
 - Browsing archived debate sessions, subject to later product decisions.
 
 These features are outside the first practice workflow.

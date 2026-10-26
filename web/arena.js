@@ -17,12 +17,7 @@
   let messageKey = "";
   let modelChoices = {};
 
-  function node(tag, text, className) {
-    const result = document.createElement(tag);
-    if (text !== undefined) result.textContent = text;
-    if (className) result.className = className;
-    return result;
-  }
+  const { node, renderSpeakerCards } = globalThis.DebateUI;
   function error(message = "") { $("arena-error").textContent = message; $("arena-error").hidden = !message; }
   function remember() {
     try {
@@ -31,31 +26,12 @@
       sessionStorage.setItem("arena-models", JSON.stringify(modelChoices));
     } catch { /* Arena also works without browser storage. */ }
   }
-  async function request(path, body) {
-    const response = await fetch(path, body === undefined ? undefined : {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      const failure = new Error(result.error || "The Arena request failed.");
-      failure.session = result.session;
-      throw failure;
-    }
-    return result;
-  }
+  const request = (path, body) => globalThis.DebateUI.request(path, body, "The Arena request failed.");
   function label(model) { return model ? `${model.providerName} · ${model.name}` : ""; }
   function generating() { return session?.status.startsWith("generating_") || session?.status === "judging"; }
   function renderSpeakers() {
-    $("arena-speaker-options").replaceChildren();
-    for (const speaker of speakers) {
-      const card = node("label", undefined, "speaker-card");
-      const radio = node("input");
-      radio.type = "radio"; radio.name = "arena-speaker"; radio.value = speaker.id;
-      radio.checked = speaker.id === speakerId; radio.required = true;
-      radio.addEventListener("change", () => { speakerId = speaker.id; render(); });
-      const copy = node("span"); copy.append(node("strong", speaker.speakerName), node("small", speaker.kind === "authored" ? "Authored persona" : `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
-      card.append(radio, copy); $("arena-speaker-options").append(card);
-    }
+    renderSpeakerCards({ container: $("arena-speaker-options"), speakers, selectedId: speakerId, name: "arena-speaker",
+      onChange(id) { speakerId = id; render(); } });
     $("arena-speaker-empty").hidden = Boolean(speakers.length);
     render();
   }

@@ -142,6 +142,11 @@ test("web API runs a speaker debate through the actual SDK, including failed-tur
     const crossOrigin = await fetch(web.base + "/api/debates", { method: "POST", headers: { origin: "https://example.com" } });
     assert.equal(crossOrigin.status, 403);
     assert.equal((await fetch(web.base + "/debate.js")).status, 200);
+    const sharedUi = await fetch(web.base + "/ui.js");
+    assert.equal(sharedUi.status, 200);
+    assert.match(sharedUi.headers.get("content-type") ?? "", /text\/javascript/);
+    const html = await (await fetch(web.base + "/")).text();
+    assert.match(html, /src="\/ui\.js"[\s\S]*src="\/app\.js"/);
     const speechModule = await fetch(web.base + "/debate-speech.js");
     assert.equal(speechModule.status, 200);
     assert.match(speechModule.headers.get("content-type") ?? "", /text\/javascript/);

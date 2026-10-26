@@ -70,12 +70,7 @@ import { createDebateSpeech } from "./debate-speech.js";
     }
   }
 
-  function node(tag, text, className) {
-    const result = document.createElement(tag);
-    if (text !== undefined) result.textContent = text;
-    if (className) result.className = className;
-    return result;
-  }
+  const { node, renderSpeakerCards } = globalThis.DebateUI;
   function conciseComment(value) {
     const text = String(value || "").trim().replace(/\s+/gu, " ");
     const firstSentence = text.match(/^.*?[.!?](?=\s|$)/u)?.[0] || text;
@@ -205,30 +200,10 @@ import { createDebateSpeech } from "./debate-speech.js";
       else sessionStorage.removeItem("debate-session");
     } catch { /* Practice also works with browser storage disabled. */ }
   }
-  async function request(path, body) {
-    const response = await fetch(path, body === undefined ? undefined : {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const failure = new Error(data.error || "The debate request failed.");
-      failure.session = data.session;
-      throw failure;
-    }
-    return data;
-  }
+  const request = (path, body) => globalThis.DebateUI.request(path, body, "The debate request failed.");
   function renderSpeakers() {
-    $("speaker-options").replaceChildren();
-    for (const speaker of speakers) {
-      const label = node("label", undefined, "speaker-card");
-      const radio = node("input");
-      radio.type = "radio"; radio.name = "debate-speaker"; radio.value = speaker.id;
-      radio.checked = speaker.id === speakerId; radio.required = true;
-      radio.addEventListener("change", () => { speakerId = speaker.id; renderState(); });
-      const copy = node("span");
-      copy.append(node("strong", speaker.speakerName), node("small", speaker.kind === "authored" ? "Authored persona" : `Persona · ${speaker.sourceCount} source${speaker.sourceCount === 1 ? "" : "s"}`));
-      label.append(radio, copy); $("speaker-options").append(label);
-    }
+    renderSpeakerCards({ container: $("speaker-options"), speakers, selectedId: speakerId, name: "debate-speaker",
+      onChange(id) { speakerId = id; renderState(); } });
     $("speaker-empty").hidden = Boolean(speakers.length);
     renderState();
   }

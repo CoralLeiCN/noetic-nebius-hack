@@ -49,12 +49,7 @@ async function refreshPersonas() {
   document.dispatchEvent(new CustomEvent("personas-updated", { detail: personas }));
 }
 
-function element(tag, text, className) {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (className) node.className = className;
-  return node;
-}
+const element = globalThis.DebateUI.node;
 function showError(id, message) { $(id).textContent = message || ""; $(id).hidden = !message; }
 async function api(url, options) {
   const response = await fetch(url, options);

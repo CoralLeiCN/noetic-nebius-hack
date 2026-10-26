@@ -7,7 +7,6 @@ This directory is the source of truth for the application's authored model instr
 | [debate.ts](debate.ts) | Debate system instructions, motion preparation and repair, openings, replies, speech names and word budgets | Web Practice, CLI and Arena participants through `CodexDebateAgent` |
 | [parliamentary-speaking-style.md](parliamentary-speaking-style.md) | Canonical parliamentary speaking-style text block | Openings and replies through `loadSpeakingStyle` |
 | [argument-judge.ts](argument-judge.ts) | Per-speech judge instructions, provisional criteria and evaluation task | Generated and human speeches in web Practice and the CLI; independent Arena openings |
-| [arena-judge.ts](arena-judge.ts) | Legacy whole-exchange judge instructions, provisional criteria and evaluation task | Retained legacy adapter; not used by the current Arena flow |
 | [video-analysis.ts](video-analysis.ts) | Source-transcript extraction instructions and task | Source library record creation |
 | [persona-generation.ts](persona-generation.ts) | Evidence-based persona compilation instructions and task | Persona compilation through Codex OAuth |
 | [persona-practice.ts](persona-practice.ts) | Compiled persona Markdown template, practice-role instructions and fallback guidance | Saved `persona.md` files supplied to debate practice |

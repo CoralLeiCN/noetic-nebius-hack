@@ -1,6 +1,6 @@
 # Scoring rubric for 1v1 human–AI debates
 
-Status: design draft for judging future structured debate sessions. Not yet implemented in Arena, which currently uses provisional criteria for a four-contribution exchange.
+Status: design draft for judging future structured debate sessions. Current Arena comparisons use the [shared provisional speech criteria](README.md#arena-speech-comparison) to score four independent opening speeches.
 
 This rubric applies to one-on-one debates between a human and an AI, adapted from British Parliamentary (BP) rules. Government and Opposition each speak three times: a constructive speech, an extension speech and a summary speech. It is intended for the judge model and for human adjudicators and debaters.
 

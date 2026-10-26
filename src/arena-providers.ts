@@ -68,12 +68,6 @@ export class ArenaCatalog {
     return { models, defaultModel, warnings };
   }
 
-  async select(key: string): Promise<ArenaModel> {
-    const model = (await this.list()).models.find(model => model.key === key);
-    if (!model) throw new RecordError(400, "Choose an available Arena model from the model list.");
-    return model;
-  }
-
   async comparison(judgeKey?: string): Promise<{ participants: ArenaModel[]; judge: ArenaModel }> {
     const catalog = await this.list();
     const judge = catalog.models.find(model => model.key === (judgeKey ?? catalog.defaultModel));

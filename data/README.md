@@ -48,7 +48,7 @@ data/
     persona.json
 ```
 
-`persona.md` describes observed language, vocabulary, sentence rhythm, register, rhetoric, argument structure, evidence use, rebuttal habits and uncertainty, with confidence, limitations and evidence references. `persona.json` preserves compilation metadata, source fingerprints, validated supporting quotes and the Markdown checksum. Practice reads the saved Markdown as its speaker context; original transcripts, remarks and summaries remain training material in the library. Rebuild after adding sources, then start a new debate to use the updated persona. Previous versions remain available to existing sessions.
+`persona.md` contains direct practice instructions. `persona.json` preserves the supporting analysis, confidence, limitations, evidence, compilation metadata, source fingerprints and Markdown checksum. Practice uses the saved Markdown; source material and tracing analysis remain in the library. See the [persona compilation contract](../doc/video-record-service.md#speaker-persona-compilation) for validation and rebuild behavior. Existing sessions retain their copied persona instructions.
 
 | Speaker | Compiled persona | Training sources |
 | --- | --- | --- |

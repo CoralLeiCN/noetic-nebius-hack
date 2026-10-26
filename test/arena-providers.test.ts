@@ -29,10 +29,9 @@ test("Arena shares the seven-model allowlist across providers without exposing c
     assert.equal(list.defaultModel, `first:${modelIds[0]}`);
     assert.deepEqual(list.warnings, []);
     assert.doesNotMatch(JSON.stringify(list), /secret-one|secret-two|127\.0\.0\.1/);
-    const model = await catalog.select(`second:${modelIds[0]}`);
-    assert.deepEqual(catalog.config(model), { baseUrl: second.baseUrl, apiKey: "secret-two", model: modelIds[0] });
-    await assert.rejects(catalog.select("first:unknown"), /available Arena model/);
-    await assert.rejects(catalog.select("first:other/model"), /available Arena model/);
+    const { judge } = await catalog.comparison(`second:${modelIds[0]}`);
+    assert.deepEqual(catalog.config(judge), { baseUrl: second.baseUrl, apiKey: "secret-two", model: modelIds[0] });
+    await assert.rejects(catalog.comparison("first:unknown"), /available Arena judge/);
     await assert.rejects(catalog.comparison("first:other/model"), /available Arena judge/);
     for (let attempt = 0; attempt < 10; attempt++) {
       const comparison = await catalog.comparison();

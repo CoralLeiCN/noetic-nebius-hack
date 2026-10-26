@@ -222,6 +222,7 @@ export function createVideoServer(service: VideoService, webDirectory = resolve(
       const assets: Record<string, [string, string]> = {
         "/": ["index.html", "text/html; charset=utf-8"],
         "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+        "/ui.js": ["ui.js", "text/javascript; charset=utf-8"],
         "/style.css": ["style.css", "text/css; charset=utf-8"],
         "/debate.js": ["debate.js", "text/javascript; charset=utf-8"],
         "/debate-speech.js": ["debate-speech.js", "text/javascript; charset=utf-8"],

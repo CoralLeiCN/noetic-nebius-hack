@@ -1,46 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { runInNewContext } from "node:vm";
+import { UiElement, eventTarget, htmlElements, memoryStorage, runUiScript, flush, textOf } from "./ui-fixture.js";
 import type { ArenaSnapshot } from "../src/arena-service.js";
 import type { ArenaModel } from "../src/arena-providers.js";
 import { ARGUMENT_CRITERIA } from "../src/argument-judge.js";
 
-interface UiEvent { preventDefault(): void; detail?: unknown }
-type Listener = (event: UiEvent) => void | Promise<void>;
-
-class UiElement {
-  value = "";
-  textContent = "";
-  hidden = false;
-  disabled = false;
-  checked = false;
-  required = false;
-  type = "";
-  name = "";
-  label = "";
-  id = "";
-  tagName = "";
-  className = "";
-  scrollTop = 0;
-  scrollHeight = 0;
-  style: Record<string, string> = {};
-  children: UiElement[] = [];
-  readonly attributes = new Map<string, string>();
-  readonly listeners = new Map<string, Listener[]>();
-  append(...children: UiElement[]): void { this.children.push(...children); }
-  replaceChildren(...children: UiElement[]): void { this.children = children; }
-  setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
-  addEventListener(name: string, listener: Listener): void { this.listeners.set(name, [...this.listeners.get(name) ?? [], listener]); }
-  focus(): void {}
-  emit(name: string, detail?: unknown): void {
-    if (this.disabled && name === "click") throw new Error(`Cannot click disabled ${this.id}`);
-    for (const listener of this.listeners.get(name) ?? []) void listener({ preventDefault() {}, detail });
-  }
-}
-
-const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const model = (id: string): ArenaModel => ({ id, name: `Model ${id}`, family: "Configured", providerId: "test", providerName: "Test", key: `test:${id}` });
 const candidates = ["a", "b", "c", "d", "judge"].map(model);
 const positions = { motion: "Cities should remove fares.", affirmative: "Free fares widen access.", negative: "Fares fund service." };
@@ -57,22 +21,10 @@ function results(): ArenaSnapshot["results"] {
         reasoning: { score: 70 + index, comment: `Mechanism explained ${candidate.id}.` },
         engagement: { score: 70 + index, comment: `Anticipates objections ${candidate.id}.` } } } }));
 }
-function textOf(element: UiElement): string {
-  return [element.textContent, ...element.children.map(textOf)].join(" ");
-}
 
 async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; authored?: boolean; pendingRun?: boolean } = {}) {
-  const html = await readFile(resolve("web/index.html"), "utf8");
-  const elements = new Map<string, UiElement>();
-  for (const match of html.matchAll(/id="([^"]+)"/gu)) {
-    const element = new UiElement(); element.id = match[1]!; elements.set(element.id, element);
-  }
-  function element(id: string): UiElement {
-    const found = elements.get(id);
-    assert.ok(found, `The real HTML must provide #${id}`);
-    return found;
-  }
-  const documentEvents = new Map<string, Listener[]>();
+  const { element } = await htmlElements();
+  const documentEvents = eventTarget();
   const storage = new Map<string, string>();
   const requests: { path: string; body: Record<string, string> | null }[] = [];
   let snapshot = initial();
@@ -110,22 +62,20 @@ async function ui(options: { models?: ArenaModel[]; failScoring?: boolean; autho
     if (path === `/api/arenas/${snapshot.id}`) return Response.json(snapshot);
     throw new Error(`Unexpected request ${path}`);
   };
-  const source = await readFile(resolve("web/arena.js"), "utf8");
   let timerId = 0;
   const timers: (() => void)[] = [];
-  runInNewContext(source, {
+  await runUiScript("web/arena.js", {
     document: {
       getElementById: element,
       createElement: (tag: string) => { const result = new UiElement(); result.tagName = tag; return result; },
-      addEventListener: (name: string, listener: Listener) => documentEvents.set(name, [...documentEvents.get(name) ?? [], listener]),
+      addEventListener: documentEvents.addEventListener,
     },
-    sessionStorage: { getItem: (name: string) => storage.get(name) ?? null,
-      setItem: (name: string, value: string) => storage.set(name, value), removeItem: (name: string) => storage.delete(name) },
+    sessionStorage: memoryStorage(storage),
     fetch,
     // Advance polling explicitly to observe intermediate state without real delays.
     setTimeout: (callback: () => void) => { timers.push(callback); return ++timerId; },
-  }, { filename: "web/arena.js" });
-  for (const listener of documentEvents.get("workspace-screen") ?? []) void listener({ preventDefault() {}, detail: "arena" });
+  });
+  documentEvents.emit("workspace-screen", "arena");
   await flush();
   return { element, requests,
     async progress(update: Partial<ArenaSnapshot>) {

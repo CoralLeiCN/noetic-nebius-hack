@@ -1,35 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { runInNewContext } from "node:vm";
-
-interface UiEvent { preventDefault(): void; detail?: unknown }
-type Listener = (event: UiEvent) => void | Promise<void>;
-
-class UiElement {
-  textContent = "";
-  hidden = false;
-  disabled = false;
-  id = "";
-  type = "";
-  className = "";
-  href = "";
-  dataset: Record<string, string> = {};
-  children: UiElement[] = [];
-  readonly attributes = new Map<string, string>();
-  readonly listeners = new Map<string, Listener[]>();
-  append(...children: UiElement[]): void { this.children.push(...children); }
-  replaceChildren(...children: UiElement[]): void { this.children = children; }
-  setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
-  removeAttribute(name: string): void { this.attributes.delete(name); }
-  addEventListener(name: string, listener: Listener): void { this.listeners.set(name, [...this.listeners.get(name) ?? [], listener]); }
-  pause(): void {}
-  emit(name: string): void {
-    assert.equal(this.disabled, false, `Cannot interact with disabled ${this.id}`);
-    for (const listener of this.listeners.get(name) ?? []) void listener({ preventDefault() {} });
-  }
-}
+import { UiElement, eventTarget, htmlElements, runUiScript, flush, textOf } from "./ui-fixture.js";
 
 const socrates = {
   id: "persona-00000000-0000-4000-8000-000000000001", kind: "authored", speakerName: "Socrates",
@@ -42,26 +13,16 @@ const video = {
   analysis: { limitations: [], summary: [{ title: "The case", text: "A concrete policy argument.", remarkIndexes: [] }] },
   transcript: { cues: [] },
 };
-const settle = async () => { for (let step = 0; step < 3; step++) await new Promise<void>(done => setImmediate(done)); };
-function textOf(element: UiElement): string { return [element.textContent, ...element.children.map(textOf)].join(" "); }
+const settle = () => flush(3);
 
 async function library(withVideo = false) {
-  const html = await readFile(resolve("web/index.html"), "utf8");
-  const elements = new Map<string, UiElement>();
-  for (const match of html.matchAll(/id="([^"]+)"/gu)) {
-    const element = new UiElement(); element.id = match[1]!; elements.set(element.id, element);
-  }
-  const element = (id: string): UiElement => {
-    const found = elements.get(id);
-    assert.ok(found, `The real HTML must provide #${id}`);
-    return found;
-  };
+  const { html, element } = await htmlElements("all");
   const views = [...html.matchAll(/data-view="([^"]+)"/gu)].map(match => {
-    const button = new UiElement(); button.dataset.view = match[1]!; return button;
+    const button = new UiElement("all"); button.dataset.view = match[1]!; return button;
   });
-  const buildHint = new UiElement();
+  const buildHint = new UiElement("all");
   const created: UiElement[] = [];
-  const documentEvents = new Map<string, Listener[]>();
+  const documentEvents = eventTarget();
   const emitted: { type: string; detail: unknown }[] = [];
   const requests: string[] = [];
   const fetch = async (path: string): Promise<Response> => {
@@ -72,14 +33,13 @@ async function library(withVideo = false) {
     if (path === `/api/videos/${video.id}`) return Response.json(video);
     throw new Error(`Unexpected request: ${path}`);
   };
-  const source = await readFile(resolve("web/app.js"), "utf8");
-  runInNewContext(source, {
+  await runUiScript("web/app.js", {
     document: {
       getElementById: element,
-      createElement: () => { const result = new UiElement(); created.push(result); return result; },
+      createElement: () => { const result = new UiElement("all"); created.push(result); return result; },
       querySelectorAll: (selector: string) => selector === "[data-view]" ? views :
         selector === "#record-view > .hint" ? [buildHint] : selector === ".record-card" ? created.filter(item => item.className === "record-card") : [],
-      addEventListener: (name: string, listener: Listener) => documentEvents.set(name, [...documentEvents.get(name) ?? [], listener]),
+      addEventListener: documentEvents.addEventListener,
       dispatchEvent: (event: { type: string; detail: unknown }) => { emitted.push(event); },
     },
     window: { addEventListener() {} },
@@ -88,12 +48,12 @@ async function library(withVideo = false) {
       get detail() { return this.options.detail; }
     },
     fetch, URL, console,
-  }, { filename: "web/app.js" });
+  });
   await settle();
   return {
     element, views, requests, buildHint, emitted,
     card(id: string) { const card = element("record-list").children.find(item => item.dataset.id === id); assert.ok(card); return card; },
-    async review(id: string) { for (const listener of documentEvents.get("review-speaker-persona") ?? []) await listener({ preventDefault() {}, detail: id }); await settle(); },
+    async review(id: string) { await documentEvents.emitAsync("review-speaker-persona", id); await settle(); },
   };
 }
 
